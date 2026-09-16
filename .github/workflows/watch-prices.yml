@@ -1,0 +1,45 @@
+name: Daily price watch
+
+# Fetches cheapest fares once a day and commits them to data/history.json.
+# Free: GitHub Actions minutes are unlimited for public repos.
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # 06:17 UTC daily (off the hour to avoid peak load)
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+permissions:
+  contents: write # needed to commit the updated history back to the repo
+
+concurrency:
+  group: price-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Fetch prices
+        env:
+          TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
+        run: node scripts/fetch-prices.mjs
+
+      - name: Commit updated history
+        run: |
+          git config user.name "raven-bot"
+          git config user.email "raven-bot@users.noreply.github.com"
+          if git diff --quiet -- data/history.json; then
+            echo "No price changes today."
+          else
+            git add data/history.json
+            git commit -m "chore(data): daily price snapshot $(date -u +%Y-%m-%d)"
+            git push
+          fi
