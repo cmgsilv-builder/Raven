@@ -1,0 +1,10 @@
+{
+  "_comment": "Defines what the daily GitHub Actions watcher fetches. The PWA trip profile (in localStorage) drives what the app SHOWS and alerts on; this file drives what actually gets fetched. To watch a different route/window, edit this file and commit it — the next daily run picks it up. Keep origins to a handful (each is one API call per month).",
+  "currency": "EUR",
+  "origins": ["AMS", "BRU", "DUS", "EIN"],
+  "destination": "GRU",
+  "months": ["2027-02", "2027-03"],
+  "tripType": "round",
+  "daysAtDestination": 28,
+  "travellers": { "adults": 2, "lapInfants": 1 }
+}

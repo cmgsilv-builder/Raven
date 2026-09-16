@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Raven — flight price watcher</title>
+  <meta name="description" content="Watches flight prices for your trip and tells you buy vs wait." />
+
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#1e1b4b" />
+
+  <!-- iOS install support -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Raven" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="icon" href="icons/icon-192.png" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <img src="icons/icon-192.png" alt="" class="brand-logo" width="36" height="36" />
+      <div>
+        <h1>Raven</h1>
+        <p class="tagline">Your flight-price watcher</p>
+      </div>
+    </div>
+    <div id="dataStamp" class="data-stamp" aria-live="polite"></div>
+  </header>
+
+  <main class="app-main">
+    <!-- BUY vs WAIT advice -->
+    <section class="card advice-card" id="adviceCard" aria-labelledby="adviceTitle">
+      <h2 id="adviceTitle" class="visually-hidden">Advice</h2>
+      <div class="advice-verdict" id="adviceVerdict">…</div>
+      <p class="advice-reason" id="adviceReason"></p>
+      <div class="advice-stats" id="adviceStats"></div>
+    </section>
+
+    <!-- Target-price alert banner (shows only when set) -->
+    <section class="card alert-card hidden" id="alertCard" aria-live="polite"></section>
+
+    <!-- Trip profile -->
+    <section class="card" aria-labelledby="tripTitle">
+      <div class="card-head">
+        <h2 id="tripTitle">Your trip</h2>
+        <button type="button" class="link-btn" id="toggleTrip" aria-expanded="true">Hide</button>
+      </div>
+      <form id="tripForm" class="trip-form">
+        <div class="field">
+          <label for="origins">Fly from (airports)</label>
+          <div class="chips" id="originChips"></div>
+          <div class="add-origin">
+            <input type="text" id="newOrigin" maxlength="3" placeholder="e.g. AMS" inputmode="latin" autocomplete="off" />
+            <button type="button" id="addOrigin" class="btn-small">Add</button>
+          </div>
+          <small class="hint">The daily watcher fetches the airports listed in <code>data/watch-config.json</code>. Airports here that aren't watched yet show "no data".</small>
+        </div>
+
+        <div class="field">
+          <label for="destination">Fly to (Brazil airport code)</label>
+          <input type="text" id="destination" maxlength="3" placeholder="e.g. GRU" autocomplete="off" />
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="adults">Adults</label>
+            <input type="number" id="adults" min="1" max="9" value="2" />
+          </div>
+          <div class="field">
+            <label for="lapInfants">Lap infants (under 2)</label>
+            <input type="number" id="lapInfants" min="0" max="4" value="1" />
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="tripType">Trip type</label>
+            <select id="tripType">
+              <option value="round">Round-trip</option>
+              <option value="one-way">One-way</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="daysAtDestination">Days in Brazil</label>
+            <input type="number" id="daysAtDestination" min="1" max="120" value="28" />
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="windowStart">Window start (month)</label>
+            <input type="month" id="windowStart" value="2027-02" />
+          </div>
+          <div class="field">
+            <label for="windowEnd">Window end (month)</label>
+            <input type="month" id="windowEnd" value="2027-03" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="targetPrice">Target price alert (total trip, <span class="cur">EUR</span>)</label>
+          <input type="number" id="targetPrice" min="0" step="10" placeholder="e.g. 2200" />
+          <small class="hint">Raven flags when the estimated cheapest total is at or below this.</small>
+        </div>
+
+        <button type="submit" class="btn-primary">Save trip</button>
+        <span id="saveStamp" class="save-stamp" aria-live="polite"></span>
+      </form>
+    </section>
+
+    <!-- Price history chart -->
+    <section class="card" aria-labelledby="chartTitle">
+      <div class="card-head">
+        <h2 id="chartTitle">Price history</h2>
+        <span class="badge" id="chartRange"></span>
+      </div>
+      <div class="chart-wrap" id="chartWrap"></div>
+      <p class="unit-note" id="unitNote"></p>
+    </section>
+
+    <!-- Cheapest-day calendar -->
+    <section class="card" aria-labelledby="calTitle">
+      <div class="card-head">
+        <h2 id="calTitle">Cheapest days in your window</h2>
+      </div>
+      <div id="calendarWrap"></div>
+    </section>
+
+    <!-- Airport comparison -->
+    <section class="card" aria-labelledby="cmpTitle">
+      <div class="card-head">
+        <h2 id="cmpTitle">Compare airports</h2>
+      </div>
+      <div id="airportCompare"></div>
+    </section>
+
+    <section class="card muted-card">
+      <p id="estimateNote" class="fine"></p>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>Raven · free flight-price watcher · data from Travelpayouts</p>
+    <button type="button" class="link-btn" id="reloadData">Refresh data</button>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
