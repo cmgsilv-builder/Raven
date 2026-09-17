@@ -36,9 +36,73 @@
   "snapshots": [
     {
       "date": "2026-09-17",
-      "ts": "2026-09-17T11:49:22.462Z",
+      "ts": "2026-09-17T20:04:04.783Z",
       "ok": true,
       "prices": [
+        {
+          "origin": "AMS",
+          "destination": "NAT",
+          "month": "2027-02",
+          "cheapestDate": null,
+          "cheapest": null,
+          "calendar": {}
+        },
+        {
+          "origin": "AMS",
+          "destination": "NAT",
+          "month": "2027-03",
+          "cheapestDate": null,
+          "cheapest": null,
+          "calendar": {}
+        },
+        {
+          "origin": "BRU",
+          "destination": "NAT",
+          "month": "2027-02",
+          "cheapestDate": null,
+          "cheapest": null,
+          "calendar": {}
+        },
+        {
+          "origin": "BRU",
+          "destination": "NAT",
+          "month": "2027-03",
+          "cheapestDate": null,
+          "cheapest": null,
+          "calendar": {}
+        },
+        {
+          "origin": "DUS",
+          "destination": "NAT",
+          "month": "2027-02",
+          "cheapestDate": null,
+          "cheapest": null,
+          "calendar": {}
+        },
+        {
+          "origin": "DUS",
+          "destination": "NAT",
+          "month": "2027-03",
+          "cheapestDate": null,
+          "cheapest": null,
+          "calendar": {}
+        },
+        {
+          "origin": "EIN",
+          "destination": "NAT",
+          "month": "2027-02",
+          "cheapestDate": null,
+          "cheapest": null,
+          "calendar": {}
+        },
+        {
+          "origin": "EIN",
+          "destination": "NAT",
+          "month": "2027-03",
+          "cheapestDate": null,
+          "cheapest": null,
+          "calendar": {}
+        },
         {
           "origin": "AMS",
           "destination": "GRU",
@@ -208,22 +272,6 @@
           "origin": "AMS",
           "destination": "NAT",
           "month": "2027-01",
-          "cheapestDate": null,
-          "cheapest": null,
-          "calendar": {}
-        },
-        {
-          "origin": "AMS",
-          "destination": "NAT",
-          "month": "2027-02",
-          "cheapestDate": null,
-          "cheapest": null,
-          "calendar": {}
-        },
-        {
-          "origin": "AMS",
-          "destination": "NAT",
-          "month": "2027-03",
           "cheapestDate": null,
           "cheapest": null,
           "calendar": {}
