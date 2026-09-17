@@ -24,8 +24,11 @@
   // poll raw for freshness (public repo → no auth, CORS-enabled).
   const RAW_HISTORY_URL = `https://raw.githubusercontent.com/${REPO}/main/data/history.json`;
   const PAT_CREATE_URL = "https://github.com/settings/personal-access-tokens/new";
-  const POLL_INTERVAL_MS = 12000;      // check for fresh data every ~12s
-  const POLL_TIMEOUT_MS = 6 * 60 * 1000; // give the run up to ~6 min
+  const POLL_INTERVAL_MS = 8000;       // check the run status every ~8s
+  const POLL_TIMEOUT_MS = 6 * 60 * 1000; // hard cap: always resolve within ~6 min
+  const RUN_FIRST_CHECK_MS = 4000;     // let the dispatched run register first
+  const DATA_SETTLE_MS = 30000;        // after the run ends, let the commit reach the CDN
+  const DATA_SETTLE_STEP_MS = 4000;    // ...re-checking the data this often
 
   // Pricing model (documented, rough — see README "Estimates"):
   //  - history stores per-adult ONE-WAY cheapest fare.
@@ -1333,44 +1336,113 @@
       return;
     }
 
-    setSearchStatus("busy", `Searching ${origins.join("/")} → ${cityLabel(dest)}… fetching fresh fares. This can take 1–3 minutes.`);
-    pollForFreshData(beforeTs);
+    setSearchStatus("busy", `Searching ${origins.join("/")} → ${cityLabel(dest)}… the robot is fetching fresh fares. Usually under 2 minutes.`);
+    watchRun(token, beforeTs, Date.now());
   }
 
-  // Poll the committed history for a snapshot newer than when we dispatched.
-  function pollForFreshData(beforeTs) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // Find the newest workflow_dispatch run started at/after we dispatched.
+  // (dispatch returns 204 with no id, so we locate the run afterwards.)
+  async function ghFindRun(token, dispatchedAtMs) {
+    const res = await fetch(
+      `${GH_API}/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?event=workflow_dispatch&per_page=10`,
+      { headers: ghHeaders(token), cache: "no-store" }
+    );
+    if (!res.ok) return null;
+    const body = await res.json();
+    const runs = (body && body.workflow_runs) || [];
+    const floor = dispatchedAtMs - 60000; // 60s grace for clock skew
+    let best = null;
+    for (const r of runs) {
+      const created = Date.parse(r.created_at);
+      if (Number.isFinite(created) && created >= floor) {
+        if (!best || created > Date.parse(best.created_at)) best = r;
+      }
+    }
+    return best;
+  }
+
+  // Read one run's current state ({ status, conclusion }) or null.
+  async function ghGetRun(token, runId) {
+    const res = await fetch(`${GH_API}/repos/${REPO}/actions/runs/${runId}`, {
+      headers: ghHeaders(token), cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return res.json();
+  }
+
+  // Re-read the committed history, cache-busted, raw first then the Pages copy.
+  async function fetchFreshHistory() {
+    for (const url of [RAW_HISTORY_URL, HISTORY_URL]) {
+      try {
+        const res = await fetch(`${url}?t=${Date.now()}`, { cache: "no-store" });
+        if (res.ok) return await res.json();
+      } catch { /* try the next source */ }
+    }
+    return null;
+  }
+
+  function snapshotTsOf(json) {
+    const snaps = json && json.snapshots;
+    return snaps && snaps.length ? (snaps[snaps.length - 1].ts || null) : null;
+  }
+
+  // Watch the dispatched run to a terminal state, THEN re-read the data and
+  // render. Always resolves the "Searching…" spinner — on success, on a failed
+  // run, or on the hard timeout — so it can never spin forever.
+  async function watchRun(token, beforeTs, dispatchedAtMs) {
     const start = Date.now();
-    let pollUrl = RAW_HISTORY_URL; // fast; falls back to the Pages copy on error
+    let runId = null;
+
+    // Pull the freshly-committed data (waiting briefly for the CDN to catch up
+    // when we expect a change) and turn the spinner into a clear final state.
+    const settle = async (fallbackMsg, expectNew) => {
+      const deadline = Date.now() + (expectNew ? DATA_SETTLE_MS : 0);
+      let fresh = null, newTs = null;
+      for (;;) {
+        fresh = await fetchFreshHistory();
+        newTs = snapshotTsOf(fresh);
+        if (newTs && newTs !== beforeTs) break;
+        if (Date.now() >= deadline) break;
+        await sleep(DATA_SETTLE_STEP_MS);
+      }
+      if (fresh) {
+        history = fresh;
+        if (!history.snapshots) history.snapshots = [];
+        renderAll();
+      }
+      setSearchBusy(false);
+      if (newTs && newTs !== beforeTs) reportSearchOutcome();
+      else setSearchStatus("warn", fallbackMsg ||
+        "The search finished but the new data hasn’t landed yet. Tap “Refresh data” in a moment.");
+    };
 
     const tick = async () => {
       if (!searching) return; // disconnected / cancelled
       if (Date.now() - start > POLL_TIMEOUT_MS) {
-        setSearchBusy(false);
-        setSearchStatus("warn", "Still working… the robot is taking longer than usual. Tap “Refresh data” in a minute to pick up the result.");
+        await settle("Couldn’t confirm the run in time. Tap “Refresh data” in a minute to pick up the result.", true);
         return;
       }
       try {
-        const res = await fetch(`${pollUrl}?t=${Date.now()}`, { cache: "no-store" });
-        if (res.ok) {
-          const json = await res.json();
-          const snaps = json && json.snapshots;
-          const ts = snaps && snaps.length ? (snaps[snaps.length - 1].ts || null) : null;
-          if (ts && ts !== beforeTs) {
-            history = json;
-            if (!history.snapshots) history.snapshots = [];
-            renderAll();
-            setSearchBusy(false);
-            reportSearchOutcome();
+        if (!runId) {
+          const run = await ghFindRun(token, dispatchedAtMs);
+          if (run) runId = run.id;
+        }
+        if (runId) {
+          const run = await ghGetRun(token, runId);
+          if (run && run.status === "completed") {
+            if (run.conclusion === "success") await settle(null, true);
+            else await settle(`The search run didn’t finish cleanly (${run.conclusion || "failed"}). Tap “Refresh data” or try again.`, false);
             return;
           }
         }
       } catch {
-        // raw blocked (CORS/offline)? fall back to the same-origin Pages copy.
-        if (pollUrl === RAW_HISTORY_URL) pollUrl = HISTORY_URL;
+        // transient network/API error — keep trying until the hard timeout.
       }
       setTimeout(tick, POLL_INTERVAL_MS);
     };
-    setTimeout(tick, POLL_INTERVAL_MS);
+    setTimeout(tick, RUN_FIRST_CHECK_MS);
   }
 
   // Honest per-route result once fresh data lands.

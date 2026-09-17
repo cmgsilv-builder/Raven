@@ -145,15 +145,20 @@ steps, or:
    GitHub Actions runs scripts/fetch-prices.mjs for JUST that route
         │  merges it into data/history.json (keeps the daily routes), commits
         ▼
-   App polls the committed history, sees the new snapshot, re-renders everything
+   App polls the RUN status (Actions API), waits for it to finish, then
+   re-reads the committed history and re-renders everything
 ```
 
 - The app dispatches with `ref: main` and `inputs` = your `origins`,
   `destinations`, and window `months` (comma-separated).
-- It then polls the committed `history.json` (the public
-  `raw.githubusercontent.com` copy, which updates within seconds) every ~12s for a
-  newer snapshot, with a ~6-minute timeout and a visible *searching…* / *done* /
-  *timed out* state.
+- It then **polls the workflow *run* status** via the Actions API (your token has
+  Actions: read) every ~8s until the run reaches a terminal state, and only then
+  re-reads the committed `history.json` (cache-busted from the public
+  `raw.githubusercontent.com` copy, falling back to the Pages copy). This is more
+  reliable than watching the data alone — a run that failed, or a route the source
+  has no fares for, still resolves the spinner instead of hanging.
+- There is a hard ~6-minute timeout: the *searching…* state **always** ends in a
+  clear *done* / *no fares* / *couldn't confirm — tap Refresh* message.
 - If the free source has **no fares** for a route (it happens — e.g. EIN/DUS, or
   an unusual pair), Raven says so plainly: *"No fares found for LIS → NAT — the
   free data source has no cached prices for this route."*
