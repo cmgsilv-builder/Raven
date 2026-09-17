@@ -117,7 +117,7 @@ async function main() {
       daysAtDestination: config.daysAtDestination,
       travellers: config.travellers,
       marker: config.marker || "",
-      email: (config.alerts && config.alerts.email) || { enabled: false, to: "" },
+      email: (config.alerts && config.alerts.email) || { enabled: false, to: [] },
     },
     snapshots,
   };

@@ -113,7 +113,10 @@ async function sendPush(payload) {
 
 async function sendEmail(config, subjectLine, text, html) {
   const email = config.alerts?.email || {};
-  if (!email.enabled || !email.to) { console.log("Email: disabled or no recipient — skipping."); return; }
+  // `to` may be a single string or an array of addresses.
+  const recipients = (Array.isArray(email.to) ? email.to : (email.to ? [email.to] : []))
+    .map((s) => String(s).trim()).filter(Boolean);
+  if (!email.enabled || !recipients.length) { console.log("Email: disabled or no recipient — skipping."); return; }
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
@@ -129,11 +132,11 @@ async function sendEmail(config, subjectLine, text, html) {
   });
   await transport.sendMail({
     from: process.env.SMTP_FROM || user,
-    to: email.to,
+    to: recipients.join(", "),
     subject: subjectLine,
     text, html,
   });
-  console.log(`Email: sent to ${email.to}.`);
+  console.log(`Email: sent to ${recipients.length} recipient(s).`);
 }
 
 async function main() {

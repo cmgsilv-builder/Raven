@@ -31,6 +31,20 @@
     CGN: "~1h45",
   };
 
+  // Airport code -> city, so destinations/origins read clearly. Falls back to
+  // the raw code for anything not listed.
+  const CITY = {
+    // Brazil (destinations)
+    GRU: "São Paulo", GIG: "Rio de Janeiro", BSB: "Brasília", CNF: "Belo Horizonte",
+    SSA: "Salvador", REC: "Recife", FOR: "Fortaleza", POA: "Porto Alegre",
+    CWB: "Curitiba", VCP: "Campinas", GYN: "Goiânia", NAT: "Natal",
+    // Europe (origins)
+    AMS: "Amsterdam", BRU: "Brussels", DUS: "Düsseldorf", EIN: "Eindhoven",
+    RTM: "Rotterdam", CRL: "Charleroi", CGN: "Cologne", LIS: "Lisbon",
+  };
+  const cityName = (code) => CITY[code] || code;
+  const cityLabel = (code) => (CITY[code] ? `${CITY[code]} (${code})` : code);
+
   // ---- Safe localStorage ----------------------------------------------------
   const storage = {
     get(key) {
@@ -57,6 +71,12 @@
     anyDate: false,
     // Prefer baby-friendly flights (direct / no red-eye) where the data allows.
     babyFriendly: false,
+    // One preferred departure airport (starred). Drives the advice + is
+    // highlighted in Compare airports. Empty = use the cheapest across all.
+    preferredOrigin: "",
+    // Notification email addresses the user registers in-app (see README for
+    // how they reach the daily workflow).
+    alertEmails: [],
     targetPrice: null,
   };
 
@@ -139,6 +159,29 @@
     return trip.origins.filter((o) => watched.has(o));
   }
 
+  // does one origin have any in-window data (latest snapshot, primary dest)?
+  function originHasWindowData(origin) {
+    if (!history || !history.snapshots.length) return false;
+    const latest = history.snapshots[history.snapshots.length - 1];
+    const months = monthsInWindow(trip.windowStart, trip.windowEnd);
+    const dest = primaryDestination();
+    for (const p of latest.prices) {
+      if (p.origin !== origin || p.destination !== dest || !months.includes(p.month)) continue;
+      if (entryCheapestInWindow(p, months)) return true;
+    }
+    return false;
+  }
+
+  // origins the advice/chart use: just the preferred one when it's set and has
+  // data, otherwise the cheapest across all active origins.
+  function adviceOrigins() {
+    const active = activeOrigins();
+    if (trip.preferredOrigin && active.includes(trip.preferredOrigin) && originHasWindowData(trip.preferredOrigin)) {
+      return [trip.preferredOrigin];
+    }
+    return active;
+  }
+
   // destinations present in the data
   function watchedDestinations() {
     if (!history) return [];
@@ -204,7 +247,7 @@
 
   // series of estimated trip totals over time (only snapshots with data)
   function buildSeries() {
-    const origins = activeOrigins();
+    const origins = adviceOrigins();
     const months = monthsInWindow(trip.windowStart, trip.windowEnd);
     const destination = primaryDestination();
     const mult = partyMultiplier();
@@ -308,12 +351,29 @@
     }
   }
 
+  // One-line "what's being priced" summary (party · trip · destination · taxes).
+  // Carrier is shown only when the underlying data actually carries it.
+  function pricingSummary(series) {
+    const adults = Math.max(1, Number(trip.adults) || 1);
+    const infants = Math.max(0, Number(trip.lapInfants) || 0);
+    const who = `${adults} adult${adults > 1 ? "s" : ""}` +
+      (infants ? ` + ${infants} lap infant${infants > 1 ? "s" : ""}` : "");
+    const parts = [who, trip.tripType === "round" ? "round-trip" : "one-way", `to ${cityLabel(primaryDestination())}`];
+    const last = series && series.length ? series[series.length - 1] : null;
+    if (last && last.origin) parts.push(`from ${last.origin}`);
+    if (last && last.carrier) parts.push(`cheapest via ${last.carrier}`);
+    parts.push("total incl. taxes (estimate)");
+    return parts.join(" · ");
+  }
+
   function renderAdvice(series) {
     const adv = computeAdvice(series, trip.targetPrice);
     const verdict = $("#adviceVerdict");
     verdict.textContent = adv.verdict;
     verdict.className = "advice-verdict " + adv.cls;
     $("#adviceReason").textContent = adv.reason;
+    const sum = $("#adviceSummary");
+    if (sum) sum.textContent = pricingSummary(series);
 
     const stats = $("#adviceStats");
     stats.innerHTML = "";
@@ -425,9 +485,9 @@
     wrap.appendChild(svg);
 
     $("#unitNote").textContent =
-      `Estimated total for ${trip.adults} adult${trip.adults > 1 ? "s" : ""}` +
+      `Estimated total (incl. taxes) for ${trip.adults} adult${trip.adults > 1 ? "s" : ""}` +
       (trip.lapInfants ? ` + ${trip.lapInfants} lap infant${trip.lapInfants > 1 ? "s" : ""}` : "") +
-      `, ${trip.tripType === "round" ? "round-trip" : "one-way"}, in ${cur()}. Based on per-adult fares from Travelpayouts.`;
+      `, ${trip.tripType === "round" ? "round-trip" : "one-way"}, in ${cur()}. Based on fares from Travelpayouts, which already include taxes.`;
   }
 
   function daysInMonth(month) {
@@ -536,7 +596,7 @@
       el("span", { html: '<i class="swatch" style="background:#059669;border-color:#34d399"></i> cheapest day' }),
       el("span", { html: '<i class="swatch" style="background:#1b1940;border-color:#34d399"></i> cheap' }),
       el("span", { html: '<i class="swatch" style="background:#1b1940"></i> pricier' }),
-      el("span", { text: "Prices shown as estimated total, e.g. 2.4k" }),
+      el("span", { text: "Prices shown as estimated total incl. taxes, e.g. 2.4k" }),
     ]);
     wrap.appendChild(legend);
   }
@@ -568,6 +628,7 @@
         total: best === Infinity ? null : Math.round(best * mult),
         date: bestDate,
         chosen: trip.origins.includes(origin),
+        preferred: origin === trip.preferredOrigin,
       });
     }
     rows.sort((a, b) => (a.total ?? Infinity) - (b.total ?? Infinity));
@@ -578,13 +639,15 @@
       el("th", { text: "Airport" }),
       el("th", { text: "Drive*" }),
       el("th", { text: "Cheapest date" }),
-      el("th", { text: "Est. total", class: "num", style: "text-align:right" }),
+      el("th", { text: "Total incl. tax", class: "num", style: "text-align:right" }),
     ])));
     const tbody = el("tbody");
     for (const r of rows) {
       const tr = el("tr");
       if (r.total != null && r.total === bestTotal) tr.classList.add("best");
+      if (r.preferred) tr.classList.add("preferred");
       const nameCell = el("td");
+      if (r.preferred) nameCell.appendChild(el("span", { class: "star", text: "★ " }));
       nameCell.appendChild(document.createTextNode(r.origin));
       if (r.chosen) nameCell.appendChild(el("span", { class: "cmp-badge", text: "yours" }));
       tr.appendChild(nameCell);
@@ -746,14 +809,14 @@
       el("th", { text: "To" }),
       el("th", { text: "Best from" }),
       el("th", { text: "Cheapest date" }),
-      el("th", { text: "Est. total", style: "text-align:right" }),
+      el("th", { text: "Total incl. tax", style: "text-align:right" }),
     ])));
     const tbody = el("tbody");
     for (const r of rows) {
       const tr = el("tr");
       if (r.total != null && r.total === bestTotal) tr.classList.add("best");
       const nameCell = el("td");
-      nameCell.appendChild(document.createTextNode(r.dest));
+      nameCell.appendChild(document.createTextNode(cityLabel(r.dest)));
       if (r.primary) nameCell.appendChild(el("span", { class: "cmp-badge", text: "shown" }));
       tr.appendChild(nameCell);
       tr.appendChild(el("td", { text: r.origin || "—" }));
@@ -815,10 +878,12 @@
 
     if (emailStat) {
       const cfg = (history && history.config && history.config.email) || null;
-      if (cfg && cfg.enabled && cfg.to) {
-        emailStat.textContent = `Email alerts ON → ${cfg.to}. Sent by the daily workflow when your target is hit.`;
+      const to = cfg && cfg.to;
+      const list = Array.isArray(to) ? to : (to ? [to] : []);
+      if (cfg && cfg.enabled && list.length) {
+        emailStat.textContent = `Email alerts ON → ${list.join(", ")}. Sent by the daily workflow when your target is hit.`;
       } else {
-        emailStat.textContent = "Email alerts off. Turn on in data/watch-config.json and add SMTP secrets (see README).";
+        emailStat.textContent = "Email alerts off. Add address(es) below, then enable alerts.email in data/watch-config.json and add SMTP secrets (see README).";
       }
     }
   }
@@ -861,7 +926,7 @@
 
   function renderEstimateNote() {
     $("#estimateNote").textContent =
-      "Prices are estimates from Travelpayouts and change constantly. Round-trip is estimated as 2× one-way; a lap infant is estimated at ~10% of an adult fare plus taxes. The exact infant price and final total appear at the airline checkout.";
+      "Prices are estimates from Travelpayouts and change constantly. Fares from Travelpayouts already include taxes, so every total shown includes taxes (estimate). Round-trip is estimated as 2× one-way; a lap infant is estimated at ~10% of an adult fare. The exact infant price and final total appear at the airline checkout.";
   }
 
   function renderAll() {
@@ -884,16 +949,85 @@
     const box = $("#originChips");
     box.innerHTML = "";
     trip.origins.forEach((code) => {
-      const chip = el("span", { class: "chip" }, [
-        document.createTextNode(code),
-        el("button", { type: "button", "aria-label": `Remove ${code}`, text: "×" }),
-      ]);
-      chip.querySelector("button").addEventListener("click", () => {
+      const isPref = trip.preferredOrigin === code;
+      const chip = el("span", { class: "chip" + (isPref ? " preferred" : "") });
+      const star = el("button", {
+        type: "button", class: "chip-star",
+        "aria-label": isPref ? `${code} is your preferred airport` : `Set ${code} as preferred`,
+        title: isPref ? "Preferred airport" : "Set as preferred",
+        text: isPref ? "★" : "☆",
+      });
+      star.addEventListener("click", () => {
+        trip.preferredOrigin = isPref ? "" : code;
+        saveTrip(trip);
+        renderOriginChips();
+        renderAll();
+      });
+      const rm = el("button", { type: "button", class: "chip-rm", "aria-label": `Remove ${code}`, text: "×" });
+      rm.addEventListener("click", () => {
         trip.origins = trip.origins.filter((o) => o !== code);
+        if (trip.preferredOrigin === code) trip.preferredOrigin = "";
         renderOriginChips();
       });
+      chip.appendChild(star);
+      chip.appendChild(document.createTextNode(code));
+      chip.appendChild(rm);
       box.appendChild(chip);
     });
+  }
+
+  // Live "To: São Paulo (GRU)" readout so the destination is unmistakable.
+  function renderDestReadout() {
+    const node = $("#destReadout");
+    if (!node) return;
+    const code = ($("#destination").value || "").trim().toUpperCase().slice(0, 3);
+    node.textContent = code ? `To: ${cityLabel(code)}` : "";
+  }
+
+  const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+
+  // Notification email list (item 5). Stored in the browser; the user copies it
+  // into data/watch-config.json alerts.email.to for the workflow to send to.
+  function renderEmailChips() {
+    const box = $("#emailChips");
+    if (!box) return;
+    box.innerHTML = "";
+    (trip.alertEmails || []).forEach((addr) => {
+      const chip = el("span", { class: "chip email-chip" });
+      chip.appendChild(document.createTextNode(addr));
+      const rm = el("button", { type: "button", class: "chip-rm", "aria-label": `Remove ${addr}`, text: "×" });
+      rm.addEventListener("click", () => {
+        trip.alertEmails = trip.alertEmails.filter((e) => e !== addr);
+        saveTrip(trip);
+        renderEmailChips();
+      });
+      chip.appendChild(rm);
+      box.appendChild(chip);
+    });
+  }
+
+  function addEmailFromInput() {
+    const inp = $("#newEmail");
+    const addr = (inp.value || "").trim().toLowerCase();
+    if (!addr) return;
+    if (!isEmail(addr)) { toast("That doesn't look like an email"); return; }
+    if (!Array.isArray(trip.alertEmails)) trip.alertEmails = [];
+    if (!trip.alertEmails.includes(addr)) {
+      trip.alertEmails.push(addr);
+      saveTrip(trip);
+      renderEmailChips();
+    }
+    inp.value = "";
+    inp.focus();
+  }
+
+  function copyEmailsForConfig() {
+    const json = JSON.stringify(trip.alertEmails || []);
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(json).then(() => toast("Copied — paste into alerts.email.to"), () => toast("Copy failed"));
+    } else {
+      toast(json);
+    }
   }
 
   function fillForm() {
@@ -911,6 +1045,8 @@
     $("#targetPrice").value = trip.targetPrice ?? "";
     updateAnyDateUI();
     renderOriginChips();
+    renderDestReadout();
+    renderEmailChips();
     document.querySelectorAll(".cur").forEach((n) => (n.textContent = cur()));
   }
 
@@ -994,6 +1130,7 @@
     });
 
     $("#anyDate").addEventListener("change", updateAnyDateUI);
+    $("#destination").addEventListener("input", renderDestReadout);
 
     $("#reloadData").addEventListener("click", () => loadHistory(true));
   }
@@ -1001,6 +1138,14 @@
   function wireNotify() {
     const subBtn = $("#pushSubscribe");
     if (subBtn) subBtn.addEventListener("click", subscribePush);
+    const addEmail = $("#addEmail");
+    if (addEmail) addEmail.addEventListener("click", addEmailFromInput);
+    const newEmail = $("#newEmail");
+    if (newEmail) newEmail.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); addEmailFromInput(); }
+    });
+    const emailCopy = $("#emailCopy");
+    if (emailCopy) emailCopy.addEventListener("click", copyEmailsForConfig);
     const copyBtn = $("#pushCopy");
     if (copyBtn) copyBtn.addEventListener("click", async () => {
       const ta = $("#pushSubJson");

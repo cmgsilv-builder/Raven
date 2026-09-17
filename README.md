@@ -152,16 +152,29 @@ fires when the cheapest **in-window estimated total** is at or below it.
 > tiny free serverless function to auto-store them. The sender reads the secret
 > **and** the file, so either works. Pick per your privacy comfort.
 
-### Email alerts
+### Email alerts (one or many recipients)
 
-1. In `data/watch-config.json`, set `alerts.email.enabled: true` and
-   `alerts.email.to: "you@example.com"`.
-2. Add your mail provider's **SMTP** credentials as Actions secrets:
+1. **Register recipients in the app:** open Raven → **Alerts & notifications** →
+   **Email**. Add one or more addresses, then **Copy list for watch-config**.
+2. In `data/watch-config.json`, set `alerts.email.enabled: true` and paste the
+   list into `alerts.email.to` (a JSON **array**, e.g. `["a@x.com","b@y.com"]`;
+   a single string still works).
+3. Add your mail provider's **SMTP** credentials as Actions secrets:
    - `SMTP_HOST` (e.g. `smtp.gmail.com`), `SMTP_USER`, `SMTP_PASS`
    - optional: `SMTP_PORT` (default `587`; use `465` for SSL), `SMTP_FROM`
    - For Gmail, use an **App Password**, not your normal password.
 
-That's it — the daily workflow emails you when the target is hit.
+That's it — the daily workflow emails **all** listed recipients when the target
+is hit.
+
+> **needs-decision — where recipient emails live.** A static PWA can't send mail
+> or read your browser, so the workflow reads recipients from
+> `watch-config.json` (committed). The in-app list is a convenience you copy in.
+> Default: **commit the list in `alerts.email.to`** (visible in a public repo —
+> fine for your own addresses). Alternatives: (a) keep recipients only in an
+> Actions secret and have the sender read it, or (b) add a tiny free function to
+> collect them. The committed-array default is the simplest free option; switch
+> if you'd rather not publish the addresses.
 
 ## What else is new (all free, all on the static app)
 
@@ -171,6 +184,13 @@ That's it — the daily workflow emails you when the target is hit.
   is a reminder and, where possible, nudges the booking link toward direct
   flights; confirm actual flight times at checkout. (If you later swap in a
   richer price source that returns stops/duration, surface those fields here.)
+- **Clear destination** — the *Fly to* field shows a readout like
+  **To: São Paulo (GRU)** so the final destination is unmistakable.
+- **Preferred departure airport** — tap the ☆ on an airport chip to star **one**
+  preferred origin. It's highlighted in *Compare airports* and drives the
+  buy/wait advice (instead of the cheapest-across-all default).
+- **Totals include taxes** — Travelpayouts fares already include taxes, so every
+  total is labelled **incl. taxes (estimate)**; the final figure is at checkout.
 - **Multiple destinations** — list them in `watch-config.json` `destinations`
   (e.g. `["GRU","GIG"]`). The app shows a **Compare destinations** table and you
   pick which one to focus on in *Your trip*.

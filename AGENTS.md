@@ -30,8 +30,9 @@ Architecture, setup, and the buy/wait rules are all in [README.md](README.md) â€
   `scripts/selfcheck.mjs` (the regression test). `app.js` also defends this via `dayInWindow()`
   / `entryCheapestInWindow()` so old buggy snapshots still display correctly.
 - **Alerts:** `scripts/notify.mjs` runs in CI after the fetch and sends Web Push + email when
-  `watch-config.json`'s `alerts.targetPrice` is hit. Secrets (all optional) are listed in the
-  README. `data/alert-state.json` (committed by CI) dedupes repeat alerts.
+  `watch-config.json`'s `alerts.targetPrice` is hit. `alerts.email.to` may be a string OR an
+  array (multi-recipient). Secrets (all optional) are listed in the README.
+  `data/alert-state.json` (committed by CI) dedupes repeat alerts.
 - **CI-only deps:** `package.json` pulls `web-push` + `nodemailer` for the CI scripts only. The
   PWA itself stays dependency-free â€” never add a bundler/framework to the app.
 - **Multi-destination + marker:** `watch-config.json` has `destinations[]`, a Travelpayouts

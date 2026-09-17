@@ -148,7 +148,7 @@ async function main() {
     travellers: config.travellers,
     marker: config.marker || "", // Travelpayouts affiliate marker (optional)
     // Non-secret alert status the app shows (no credentials — those are secrets).
-    email: (config.alerts && config.alerts.email) || { enabled: false, to: "" },
+    email: (config.alerts && config.alerts.email) || { enabled: false, to: [] },
   };
 
   const today = new Date().toISOString().slice(0, 10); // UTC date

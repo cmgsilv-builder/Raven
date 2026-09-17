@@ -37,6 +37,7 @@
       <div class="advice-verdict" id="adviceVerdict">…</div>
       <p class="advice-reason" id="adviceReason"></p>
       <div class="advice-stats" id="adviceStats"></div>
+      <p class="fine advice-summary" id="adviceSummary"></p>
     </section>
 
     <!-- Target-price alert banner (shows only when set) -->
@@ -59,9 +60,11 @@
           <small class="hint">The daily watcher fetches the airports listed in <code>data/watch-config.json</code>. Airports here that aren't watched yet show "no data".</small>
         </div>
 
-        <div class="field">
-          <label for="destination">Fly to (Brazil airport code)</label>
+        <div class="field field-dest">
+          <label for="destination">Fly to — your destination</label>
           <input type="text" id="destination" maxlength="3" placeholder="e.g. GRU" autocomplete="off" />
+          <div id="destReadout" class="dest-readout" aria-live="polite"></div>
+          <small class="hint">Enter the Brazil airport code. Watch more than one? List them in <code>data/watch-config.json</code> and compare below.</small>
         </div>
 
         <div class="field-row">
@@ -123,9 +126,9 @@
         <small class="hint">The free price feed is cheapest-fare-per-day only — no layover or duration detail — so Raven can't filter itineraries. This adds a reminder and, where possible, a “direct” hint to the booking link; confirm flight times at checkout.</small>
 
         <div class="field">
-          <label for="targetPrice">Target price alert (total trip, <span class="cur">EUR</span>)</label>
+          <label for="targetPrice">Target price alert (total trip incl. taxes, <span class="cur">EUR</span>)</label>
           <input type="number" id="targetPrice" min="0" step="10" placeholder="e.g. 2200" />
-          <small class="hint">Raven flags when the estimated cheapest total is at or below this.</small>
+          <small class="hint">Raven flags when the estimated cheapest total (incl. taxes) is at or below this.</small>
         </div>
 
         <button type="submit" class="btn-primary">Save trip</button>
@@ -156,6 +159,13 @@
         <div class="notify-body">
           <h3>Email</h3>
           <p class="fine" id="emailStatus"></p>
+          <div class="chips" id="emailChips"></div>
+          <div class="add-origin">
+            <input type="email" id="newEmail" placeholder="you@example.com" autocomplete="off" />
+            <button type="button" id="addEmail" class="btn-small">Add</button>
+          </div>
+          <button type="button" class="btn-small" id="emailCopy">Copy list for watch-config</button>
+          <small class="hint">A static app can't send mail, so the daily workflow reads recipients from <code>data/watch-config.json</code> (<code>alerts.email.to</code>). Add address(es) here, copy the list, and paste it in — more than one is supported. SMTP secrets are in the README.</small>
         </div>
       </div>
     </section>

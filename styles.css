@@ -174,13 +174,35 @@ input:focus, select:focus { outline: 2px solid var(--indigo); outline-offset: 1p
   background: var(--bg-card-2); border: 1px solid var(--line);
   border-radius: 999px; padding: 6px 8px 6px 12px; font-weight: 700; font-size: 0.9rem;
 }
+.chip { padding: 6px 10px; gap: 5px; }
 .chip button {
   background: none; border: none; color: var(--ink-faint);
   cursor: pointer; font-size: 1rem; line-height: 1; padding: 0 2px;
 }
-.chip button:hover { color: var(--red); }
+.chip .chip-rm:hover { color: var(--red); }
+.chip-star { color: var(--ink-faint); font-size: 0.95rem !important; }
+.chip-star:hover { color: var(--gold); }
+.chip.preferred { border-color: var(--gold); }
+.chip.preferred .chip-star { color: var(--gold); }
 .add-origin { display: flex; gap: 8px; }
 .add-origin input { text-transform: uppercase; }
+#newEmail { text-transform: none; }
+.email-chip { text-transform: none; font-weight: 600; }
+
+/* Advice summary + destination readout */
+.advice-summary { margin: 12px 0 0; }
+.field-dest .dest-readout {
+  align-self: flex-start;
+  background: var(--green-deep); color: #eafff6;
+  border: 1px solid var(--green);
+  border-radius: 999px; padding: 4px 12px;
+  font-weight: 700; font-size: 0.9rem;
+}
+.field-dest .dest-readout:empty { display: none; }
+
+/* Preferred airport in the compare table */
+.cmp-table tr.preferred td { color: var(--gold); }
+.cmp-table .star { color: var(--gold); }
 
 /* Chart */
 .chart-wrap { width: 100%; overflow: hidden; }
