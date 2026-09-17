@@ -6,12 +6,26 @@
   "use strict";
 
   // ---- Config / constants ---------------------------------------------------
-  const APP_VERSION = "2.0.0";
+  const APP_VERSION = "3.0.0";
   const HISTORY_URL = "./data/history.json";
   const PUSH_CONFIG_URL = "./data/push-config.json";
   const BAGGAGE_URL = "./data/baggage.json";
   const LS_KEY = "raven.trip.v1";
   const LS_BOOKMARKS = "raven.bookmarks.v1";
+  const LS_GH_TOKEN = "raven.gh.token.v1";
+
+  // On-demand "Search this route": trigger the watcher via the GitHub REST API,
+  // then poll the committed data for a fresh snapshot. Repo is public + hardcoded
+  // so the user only ever pastes a token (stored on-device only — see README).
+  const REPO = "cmgsilv-builder/Raven";
+  const WORKFLOW_FILE = "watch-prices.yml";
+  const GH_API = "https://api.github.com";
+  // Raw file updates within seconds of the commit; GitHub Pages lags ~1 min, so we
+  // poll raw for freshness (public repo → no auth, CORS-enabled).
+  const RAW_HISTORY_URL = `https://raw.githubusercontent.com/${REPO}/main/data/history.json`;
+  const PAT_CREATE_URL = "https://github.com/settings/personal-access-tokens/new";
+  const POLL_INTERVAL_MS = 12000;      // check for fresh data every ~12s
+  const POLL_TIMEOUT_MS = 6 * 60 * 1000; // give the run up to ~6 min
 
   // Pricing model (documented, rough — see README "Estimates"):
   //  - history stores per-adult ONE-WAY cheapest fare.
@@ -53,7 +67,16 @@
     set(key, val) {
       try { localStorage.setItem(key, val); return true; } catch { return false; }
     },
+    remove(key) {
+      try { localStorage.removeItem(key); return true; } catch { return false; }
+    },
   };
+
+  // GitHub token lives ONLY here (this device's localStorage). Never committed,
+  // never sent anywhere except GitHub's own API.
+  const getToken = () => storage.get(LS_GH_TOKEN) || "";
+  const setToken = (t) => storage.set(LS_GH_TOKEN, t);
+  const clearToken = () => storage.remove(LS_GH_TOKEN);
 
   const DEFAULT_TRIP = {
     origins: ["AMS", "BRU", "DUS", "EIN"],
@@ -100,6 +123,8 @@
   let history = null;
   let pushConfig = null; // { publicKey } from data/push-config.json (optional)
   let baggage = null;    // data/baggage.json (optional reference data)
+  let searching = false; // an on-demand "Search this route" run is in flight
+  let lastSearch = null; // { origins, destinations, months } of the last search
 
   const $ = (sel) => document.querySelector(sel);
   const el = (tag, props = {}, kids = []) => {
@@ -371,6 +396,14 @@
     const verdict = $("#adviceVerdict");
     verdict.textContent = adv.verdict;
     verdict.className = "advice-verdict " + adv.cls;
+    // Honest, route-aware message when there's no data for the shown route.
+    if (!series.length) {
+      const dest = primaryDestination();
+      const originTxt = (trip.origins || []).join("/") || "your airports";
+      adv.reason = getToken()
+        ? `No fares yet for ${originTxt} → ${cityLabel(dest)}. Tap “🔎 Search this route” to fetch them now — the free source may also have none for this route.`
+        : `No fares yet for ${originTxt} → ${cityLabel(dest)}. Connect GitHub below, then tap “🔎 Search this route” to fetch them.`;
+    }
     $("#adviceReason").textContent = adv.reason;
     const sum = $("#adviceSummary");
     if (sum) sum.textContent = pricingSummary(series);
@@ -1197,6 +1230,228 @@
     renderBaggage();
   }
 
+  // ---- On-demand "Search this route" (GitHub Actions dispatch) ---------------
+  function ghHeaders(token) {
+    return {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+    };
+  }
+
+  // Quick check that a pasted token can actually reach the watcher workflow.
+  async function ghValidateToken(token) {
+    const res = await fetch(`${GH_API}/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}`, {
+      headers: ghHeaders(token),
+    });
+    return res.ok;
+  }
+
+  // Trigger the watcher for specific routes. 204 = accepted.
+  async function ghDispatch(token, inputs) {
+    const res = await fetch(`${GH_API}/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`, {
+      method: "POST",
+      headers: { ...ghHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ ref: "main", inputs }),
+    });
+    if (res.status === 204) return { ok: true };
+    let message = `HTTP ${res.status}`;
+    try { const b = await res.json(); if (b && b.message) message = b.message; } catch { /* no body */ }
+    return { ok: false, status: res.status, message };
+  }
+
+  function latestSnapshotTs() {
+    if (!history || !history.snapshots || !history.snapshots.length) return null;
+    const s = history.snapshots[history.snapshots.length - 1];
+    return s.ts || s.date || null;
+  }
+
+  function setSearchStatus(kind, msg) {
+    const n = $("#searchStatus");
+    if (!n) return;
+    n.className = "search-status " + (kind || "");
+    n.textContent = msg || "";
+    n.classList.toggle("hidden", !msg);
+  }
+
+  function setSearchBusy(busy) {
+    searching = busy;
+    const b = $("#searchRoute");
+    if (b) {
+      b.disabled = busy;
+      b.textContent = busy ? "Searching…" : "🔎 Search this route";
+    }
+  }
+
+  async function searchThisRoute() {
+    if (searching) return;
+    const token = getToken();
+    if (!token) {
+      setSearchStatus("warn", "Connect GitHub first (panel just below) so Raven can start a live search.");
+      $("#connectCard")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      $("#ghToken")?.focus();
+      return;
+    }
+    // Search exactly what's on screen: read + save the form first.
+    readForm();
+    saveTrip(trip);
+    renderAll();
+
+    const origins = [...new Set((trip.origins || []).map((s) => (s || "").trim().toUpperCase()).filter(Boolean))];
+    const dest = (trip.destination || "").trim().toUpperCase();
+    if (!origins.length || !dest) {
+      setSearchStatus("warn", "Add at least one “from” airport and a destination first.");
+      return;
+    }
+    const months = monthsInWindow(trip.windowStart, trip.windowEnd);
+    if (!months.length) {
+      setSearchStatus("warn", "Set a valid window (start/end month) first.");
+      return;
+    }
+    const inputs = { origins: origins.join(","), destinations: dest, months: months.join(",") };
+    lastSearch = { origins, destinations: [dest], months };
+    const beforeTs = latestSnapshotTs();
+
+    setSearchBusy(true);
+    setSearchStatus("busy", `Asking the robot to fetch ${origins.join("/")} → ${cityLabel(dest)}…`);
+
+    let d;
+    try {
+      d = await ghDispatch(token, inputs);
+    } catch (err) {
+      setSearchBusy(false);
+      setSearchStatus("error", "Couldn't reach GitHub (offline?). Try again when you're online.");
+      return;
+    }
+    if (!d.ok) {
+      setSearchBusy(false);
+      if (d.status === 401) setSearchStatus("error", "GitHub rejected the token (401). Reconnect with a valid token below.");
+      else if (d.status === 403) setSearchStatus("error", "Token lacks permission (403). It needs Actions: Read and write on this repo.");
+      else if (d.status === 404) setSearchStatus("error", "Workflow not found (404). Check the token has access to this repo.");
+      else if (d.status === 422) setSearchStatus("error", "GitHub couldn't start the run (422) — the ref or inputs were rejected.");
+      else setSearchStatus("error", `Couldn't start the search: ${d.message}`);
+      return;
+    }
+
+    setSearchStatus("busy", `Searching ${origins.join("/")} → ${cityLabel(dest)}… fetching fresh fares. This can take 1–3 minutes.`);
+    pollForFreshData(beforeTs);
+  }
+
+  // Poll the committed history for a snapshot newer than when we dispatched.
+  function pollForFreshData(beforeTs) {
+    const start = Date.now();
+    let pollUrl = RAW_HISTORY_URL; // fast; falls back to the Pages copy on error
+
+    const tick = async () => {
+      if (!searching) return; // disconnected / cancelled
+      if (Date.now() - start > POLL_TIMEOUT_MS) {
+        setSearchBusy(false);
+        setSearchStatus("warn", "Still working… the robot is taking longer than usual. Tap “Refresh data” in a minute to pick up the result.");
+        return;
+      }
+      try {
+        const res = await fetch(`${pollUrl}?t=${Date.now()}`, { cache: "no-store" });
+        if (res.ok) {
+          const json = await res.json();
+          const snaps = json && json.snapshots;
+          const ts = snaps && snaps.length ? (snaps[snaps.length - 1].ts || null) : null;
+          if (ts && ts !== beforeTs) {
+            history = json;
+            if (!history.snapshots) history.snapshots = [];
+            renderAll();
+            setSearchBusy(false);
+            reportSearchOutcome();
+            return;
+          }
+        }
+      } catch {
+        // raw blocked (CORS/offline)? fall back to the same-origin Pages copy.
+        if (pollUrl === RAW_HISTORY_URL) pollUrl = HISTORY_URL;
+      }
+      setTimeout(tick, POLL_INTERVAL_MS);
+    };
+    setTimeout(tick, POLL_INTERVAL_MS);
+  }
+
+  // Honest per-route result once fresh data lands.
+  function reportSearchOutcome() {
+    if (!lastSearch || !history || !history.snapshots.length) { setSearchStatus("ok", "Updated ✓"); return; }
+    const latest = history.snapshots[history.snapshots.length - 1];
+    const found = [];
+    const missing = [];
+    for (const dest of lastSearch.destinations) {
+      let ok = false;
+      for (const p of latest.prices) {
+        if (p.destination !== dest || !lastSearch.origins.includes(p.origin)) continue;
+        if (!lastSearch.months.includes(p.month)) continue;
+        if (entryCheapestInWindow(p, lastSearch.months)) { ok = true; break; }
+      }
+      (ok ? found : missing).push(dest);
+    }
+    const orig = lastSearch.origins.join("/");
+    if (missing.length && !found.length) {
+      setSearchStatus("empty", `No fares found for ${orig} → ${missing.map(cityLabel).join(", ")} — the free data source has no cached prices for this route.`);
+    } else if (missing.length) {
+      setSearchStatus("ok", `Updated ✓ — found fares for ${found.map(cityLabel).join(", ")}. No fares for ${missing.map(cityLabel).join(", ")} (the source has none for it).`);
+    } else {
+      setSearchStatus("ok", `Updated ✓ — fresh fares for ${orig} → ${found.map(cityLabel).join(", ")}.`);
+    }
+  }
+
+  // ---- Connect GitHub panel -------------------------------------------------
+  function renderConnect() {
+    const status = $("#connectStatus");
+    const form = $("#connectForm");
+    const box = $("#connectedBox");
+    if (!status) return;
+    const connected = !!getToken();
+    status.textContent = connected
+      ? "Connected ✓ — token stored on this device only."
+      : "Not connected. Paste a GitHub token to search routes on demand.";
+    status.className = "connect-status " + (connected ? "on" : "off");
+    if (form) form.classList.toggle("hidden", connected);
+    if (box) box.classList.toggle("hidden", !connected);
+  }
+
+  async function connectGitHub() {
+    const inp = $("#ghToken");
+    const btn = $("#connectBtn");
+    const token = (inp && inp.value || "").trim();
+    if (!token) { toast("Paste your token first"); return; }
+    if (btn) { btn.disabled = true; btn.textContent = "Checking…"; }
+    let ok = false;
+    try { ok = await ghValidateToken(token); } catch { ok = false; }
+    if (btn) { btn.disabled = false; btn.textContent = "Connect"; }
+    if (!ok) {
+      toast("That token didn't work — check the repo access & Actions permission");
+      return;
+    }
+    setToken(token);
+    if (inp) inp.value = "";
+    renderConnect();
+    setSearchStatus("ok", "GitHub connected ✓ — you can now “Search this route”.");
+    toast("GitHub connected ✓");
+  }
+
+  function disconnectGitHub() {
+    clearToken();
+    renderConnect();
+    setSearchStatus("", "");
+    toast("Token forgotten");
+  }
+
+  function wireConnect() {
+    const patLink = $("#patLink");
+    if (patLink) patLink.href = PAT_CREATE_URL;
+    $("#searchRoute")?.addEventListener("click", searchThisRoute);
+    $("#connectBtn")?.addEventListener("click", connectGitHub);
+    $("#disconnectBtn")?.addEventListener("click", disconnectGitHub);
+    $("#ghToken")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); connectGitHub(); }
+    });
+    renderConnect();
+  }
+
   // ---- Service worker -------------------------------------------------------
   function registerSW() {
     if (!("serviceWorker" in navigator)) return;
@@ -1209,6 +1464,7 @@
   fillForm();
   wireForm();
   wireNotify();
+  wireConnect();
   renderBookmarks();
   registerSW();
   loadHistory(false);

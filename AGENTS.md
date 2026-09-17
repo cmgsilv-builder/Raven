@@ -37,6 +37,19 @@ Architecture, setup, and the buy/wait rules are all in [README.md](README.md) �
   PWA itself stays dependency-free — never add a bundler/framework to the app.
 - **Multi-destination + marker:** `watch-config.json` has `destinations[]`, a Travelpayouts
   affiliate `marker` (read by the app's Aviasales deep-link, never hardcoded), and `alerts{}`.
+- **On-demand "Search this route":** the app triggers the watcher via GitHub REST
+  `workflow_dispatch` using a fine-grained PAT the user pastes ONCE (repo `cmgsilv-builder/Raven`
+  hardcoded in `app.js`). The token lives ONLY in `localStorage` (`raven.gh.token.v1`) — never
+  committed/logged/uploaded except to `api.github.com`. Minimum scope: **Actions: Read and write**.
+  The watcher reads on-demand routes from env `RAVEN_ORIGINS/RAVEN_DESTINATIONS/RAVEN_MONTHS`
+  (wired to `github.event.inputs` in the workflow); empty = daily `watch-config.json` run.
+- **Snapshot merge:** `mergeSnapshotPrices()` in `scripts/lib/prices.mjs` merges freshly-fetched
+  routes over the previous latest snapshot — fresh overwrites by `origin|destination|month`,
+  everything else is deep-cloned & carried forward. Used by BOTH watcher paths, so on-demand keeps
+  daily routes and daily keeps ad-hoc routes. Covered by `scripts/selfcheck.mjs`.
+- **App auto-refresh:** after dispatch, `app.js` polls the public `raw.githubusercontent.com`
+  copy of `history.json` (updates in seconds; Pages lags ~1 min) for a newer snapshot `ts`, then
+  re-renders. A route the free source has no fares for shows an honest "no fares found" message.
 
 ## Local dev / verify
 

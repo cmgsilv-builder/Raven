@@ -131,9 +131,53 @@
           <small class="hint">Raven flags when the estimated cheapest total (incl. taxes) is at or below this.</small>
         </div>
 
-        <button type="submit" class="btn-primary">Save trip</button>
+        <div class="trip-actions">
+          <button type="button" class="btn-primary btn-search" id="searchRoute">🔎 Search this route</button>
+          <button type="submit" class="btn-secondary" id="saveTrip">Save trip</button>
+        </div>
+        <small class="hint">
+          <b>🔎 Search this route</b> tells the robot (GitHub Actions) to fetch fresh fares for the
+          airports &amp; destination above, then refreshes this page. Needs GitHub connected (below).
+          <b>Save trip</b> just stores these settings in this browser.
+        </small>
+        <div id="searchStatus" class="search-status hidden" aria-live="polite"></div>
         <span id="saveStamp" class="save-stamp" aria-live="polite"></span>
       </form>
+    </section>
+
+    <!-- Search live · connect GitHub (one-time token, stored on-device only) -->
+    <section class="card" id="connectCard" aria-labelledby="connectTitle">
+      <div class="card-head">
+        <h2 id="connectTitle">Search live · connect GitHub</h2>
+        <span class="badge">on-demand</span>
+      </div>
+      <p class="connect-status off" id="connectStatus"></p>
+
+      <div id="connectForm">
+        <p class="fine">
+          To search a route on demand, Raven asks GitHub to run the price watcher for you. That needs
+          a token you create once. It stays on this device.
+        </p>
+        <ol class="connect-steps">
+          <li>Open <a id="patLink" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">GitHub → new fine-grained token ↗</a>.</li>
+          <li><b>Resource owner:</b> your account. <b>Repository access:</b> “Only select repositories” → <code>cmgsilv-builder/Raven</code>.</li>
+          <li><b>Repository permissions → Actions: Read and write.</b> Leave everything else at “No access”.</li>
+          <li>Generate the token, copy it, and paste it below.</li>
+        </ol>
+        <div class="add-origin">
+          <input type="password" id="ghToken" placeholder="github_pat_…" autocomplete="off" spellcheck="false" />
+          <button type="button" id="connectBtn" class="btn-small">Connect</button>
+        </div>
+        <small class="hint">🔒 Your token stays on <b>this device</b> (browser localStorage). Raven sends it
+          only to GitHub’s own API to start a search — never uploaded anywhere else, never committed.</small>
+      </div>
+
+      <div id="connectedBox" class="hidden">
+        <small class="hint">🔒 Token stored on this device only, used just to trigger GitHub Actions. Not uploaded anywhere else.</small>
+        <div class="connect-actions">
+          <button type="button" id="disconnectBtn" class="btn-small">Disconnect / forget token</button>
+        </div>
+      </div>
     </section>
 
     <!-- Alerts & notifications -->

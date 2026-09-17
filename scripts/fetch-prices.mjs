@@ -15,12 +15,20 @@
  * If the endpoint/params change, edit ONLY `fetchCalendar()` below. It must
  * return a map { "YYYY-MM-DD": priceNumber } of the cheapest fare per day for
  * one origin->destination in one month. Everything else stays the same.
+ *
+ * --- On-demand runs (workflow_dispatch) ---
+ * The PWA's "Search this route" button triggers this workflow with inputs
+ * (origins/destinations/months), passed in as env RAVEN_ORIGINS / RAVEN_DESTINATIONS
+ * / RAVEN_MONTHS. When origins AND destinations are provided it runs in on-demand
+ * mode: it fetches ONLY those routes and MERGES them into the latest snapshot,
+ * keeping the daily-watched routes. With no inputs (the daily cron) it fetches the
+ * watch-config routes as before.
  */
 
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { filterCalendarToMonth, cheapestOf } from "./lib/prices.mjs";
+import { filterCalendarToMonth, cheapestOf, mergeSnapshotPrices } from "./lib/prices.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CONFIG_PATH = join(ROOT, "data", "watch-config.json");
@@ -73,32 +81,21 @@ async function loadJson(path, fallback) {
   }
 }
 
-async function main() {
-  const token = process.env.TRAVELPAYOUTS_TOKEN;
-  if (!token) {
-    console.error(
-      "TRAVELPAYOUTS_TOKEN is not set. Skipping fetch (history.json unchanged).\n" +
-        "Set it as a GitHub Actions secret — see README."
-    );
-    process.exit(0); // don't fail the workflow; just no new data today
-  }
+/** Split a comma-separated env input into a trimmed, non-empty list. */
+function parseList(s) {
+  return (s || "").split(",").map((x) => x.trim()).filter(Boolean);
+}
 
-  const config = await loadJson(CONFIG_PATH, null);
-  if (!config) {
-    console.error(`Cannot read ${CONFIG_PATH}`);
-    process.exit(1);
-  }
-  const currency = config.currency || "EUR";
-  // Support multiple destinations; fall back to the single legacy `destination`.
-  const destinations = (config.destinations && config.destinations.length)
-    ? config.destinations
-    : [config.destination].filter(Boolean);
-
+/**
+ * Fetch every origin x destination x month combination.
+ * Returns { prices, anySuccess }.
+ */
+async function fetchRoutes({ origins, destinations, months, currency, token }) {
   const prices = [];
   let anySuccess = false;
-  for (const origin of config.origins) {
+  for (const origin of origins) {
     for (const destination of destinations) {
-      for (const month of config.months) {
+      for (const month of months) {
         try {
           const raw = await fetchCalendar({ origin, destination, month, currency, token });
           // The API returns cheap fares for dates beyond the requested month;
@@ -116,8 +113,53 @@ async function main() {
       }
     }
   }
+  return { prices, anySuccess };
+}
 
-  if (!anySuccess) {
+async function main() {
+  const token = process.env.TRAVELPAYOUTS_TOKEN;
+  if (!token) {
+    console.error(
+      "TRAVELPAYOUTS_TOKEN is not set. Skipping fetch (history.json unchanged).\n" +
+        "Set it as a GitHub Actions secret — see README."
+    );
+    process.exit(0); // don't fail the workflow; just no new data today
+  }
+
+  const config = await loadJson(CONFIG_PATH, null);
+  if (!config) {
+    console.error(`Cannot read ${CONFIG_PATH}`);
+    process.exit(1);
+  }
+  const currency = config.currency || "EUR";
+  // Support multiple destinations; fall back to the single legacy `destination`.
+  const configDestinations = (config.destinations && config.destinations.length)
+    ? config.destinations
+    : [config.destination].filter(Boolean);
+
+  // On-demand mode: the app's "Search this route" button passes origins +
+  // destinations via workflow inputs. Empty inputs (the daily cron) = watch-config.
+  const reqOrigins = parseList(process.env.RAVEN_ORIGINS).map((s) => s.toUpperCase());
+  const reqDests = parseList(process.env.RAVEN_DESTINATIONS).map((s) => s.toUpperCase());
+  const reqMonths = parseList(process.env.RAVEN_MONTHS);
+  const onDemand = reqOrigins.length > 0 && reqDests.length > 0;
+
+  const origins = onDemand ? reqOrigins : config.origins;
+  const destinations = onDemand ? reqDests : configDestinations;
+  const months = onDemand ? (reqMonths.length ? reqMonths : config.months) : config.months;
+
+  if (onDemand) {
+    console.log(`On-demand run: ${origins.join(",")} -> ${destinations.join(",")} for ${months.join(",")}`);
+  } else {
+    console.log("Scheduled/daily run: using data/watch-config.json routes.");
+  }
+
+  const { prices, anySuccess } = await fetchRoutes({ origins, destinations, months, currency, token });
+
+  // A daily run that got nothing (API down) leaves history untouched — no regression.
+  // An on-demand run always writes, so the app can show an honest "no fares" state
+  // for the searched route and its poll can detect the finished run.
+  if (!anySuccess && !onDemand) {
     console.error("No prices returned from any route. Leaving history.json unchanged.");
     process.exit(0);
   }
@@ -138,10 +180,13 @@ async function main() {
   }
   history.meta.currency = currency;
   history.meta.sample = false;
+  // history.config always mirrors the daily watch-config (what the cron tracks +
+  // the affiliate marker + alert status the app reads). On-demand routes live in
+  // the snapshot data, not here; the app derives watched routes from the data.
   history.config = {
     origins: config.origins,
-    destination: destinations[0] || config.destination,
-    destinations,
+    destination: configDestinations[0] || config.destination,
+    destinations: configDestinations,
     months: config.months,
     tripType: config.tripType,
     daysAtDestination: config.daysAtDestination,
@@ -152,7 +197,14 @@ async function main() {
   };
 
   const today = new Date().toISOString().slice(0, 10); // UTC date
-  const snapshot = { date: today, ts: new Date().toISOString(), ok: true, prices };
+
+  // Merge freshly-fetched routes over the previous latest snapshot: fresh routes
+  // overwrite, everything else is carried forward (deep-cloned). This keeps the
+  // daily-watched routes on an on-demand run, and keeps ad-hoc on-demand routes on
+  // a daily run — and re-fetching a route refreshes it rather than duplicating it.
+  const prevLatest = history.snapshots[history.snapshots.length - 1];
+  const mergedPrices = mergeSnapshotPrices(prevLatest ? prevLatest.prices : [], prices);
+  const snapshot = { date: today, ts: new Date().toISOString(), ok: true, prices: mergedPrices };
 
   // Idempotent: replace today's snapshot if the job runs twice in a day.
   const existingIdx = history.snapshots.findIndex((s) => s.date === today);

@@ -3,7 +3,7 @@
  * Price data: network-first with cache fallback (fresh when online, still
  * shows the last snapshot offline).
  */
-const CACHE = "raven-v2.0.0";
+const CACHE = "raven-v3.0.0";
 const SHELL = [
   "./",
   "./index.html",

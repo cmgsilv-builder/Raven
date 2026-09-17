@@ -161,11 +161,49 @@ input:focus, select:focus { outline: 2px solid var(--indigo); outline-offset: 1p
   cursor: pointer;
   font-weight: 600;
 }
+.btn-secondary {
+  background: transparent;
+  color: var(--ink-dim);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.btn-secondary:active { transform: translateY(1px); }
 .link-btn {
   background: none; border: none; color: var(--indigo);
   cursor: pointer; font-size: 0.85rem; font-weight: 600; padding: 2px 4px;
 }
 .save-stamp { font-size: 0.75rem; color: var(--green); }
+
+/* Trip actions: Search (primary) vs Save (secondary) — clearly distinct */
+.trip-actions { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; }
+.btn-search:disabled { opacity: 0.7; cursor: progress; }
+@media (max-width: 380px) { .trip-actions { grid-template-columns: 1fr; } }
+
+/* Search status banner */
+.search-status {
+  font-size: 0.82rem; font-weight: 600; line-height: 1.35;
+  border-radius: 10px; padding: 9px 12px; border: 1px solid var(--line);
+  background: var(--bg-card-2); color: var(--ink-dim);
+}
+.search-status.busy { border-color: var(--indigo); color: var(--ink); }
+.search-status.ok { border-color: var(--green); color: #d7fff0; background: #0d3b2e; }
+.search-status.empty { border-color: var(--amber); color: #fde68a; background: #3a2f0a; }
+.search-status.warn { border-color: var(--amber); color: #fde68a; }
+.search-status.error { border-color: var(--red); color: #ffe0e6; }
+
+/* Connect GitHub panel */
+.connect-status { font-size: 0.85rem; font-weight: 700; margin: 0 0 10px; }
+.connect-status.on { color: var(--green); }
+.connect-status.off { color: var(--ink-faint); }
+.connect-steps { margin: 8px 0 12px; padding-left: 20px; font-size: 0.82rem; color: var(--ink-dim); }
+.connect-steps li { margin: 4px 0; }
+.connect-steps code { background: var(--bg-card-2); padding: 1px 5px; border-radius: 5px; }
+.connect-actions { margin-top: 10px; }
+#ghToken { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 /* Origin chips */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
