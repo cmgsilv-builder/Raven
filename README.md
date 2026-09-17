@@ -4,8 +4,10 @@ A free, installable **PWA** that watches flight prices for one trip and tells yo
 **buy now vs wait** — like a personal travel advisor.
 
 You describe a trip once. A daily robot checks fares, saves the history in this
-repo, and the app shows you a price chart, the cheapest days, an airport
-comparison, and a clear buy/wait call.
+repo, and the app shows you a price chart, the cheapest days, an airport and
+destination comparison, and a clear buy/wait call. It can also **push and email
+you** when your target price is hit, let you **bookmark a fare**, and **deep-link
+straight to booking**.
 
 **Everything costs €0/month.** No server, no paid API, no database.
 
@@ -107,6 +109,82 @@ On desktop Chrome/Edge, click the **install** icon in the address bar.
 
 ---
 
+## Alerts: push notifications & email (optional)
+
+Both are **free** and both are sent by the **daily** workflow — so they fire at
+most once a day, right after the watcher fetches fares, not in real time (that's
+the trade-off of a serverless, cron-based design).
+
+Set your **server-side target** in [`data/watch-config.json`](data/watch-config.json)
+under `alerts.targetPrice` (leave it `null` to disable all alerts). The alert
+fires when the cheapest **in-window estimated total** is at or below it.
+
+> The `targetPrice` in the app screen only drives the on-screen banner (it lives
+> in your browser). The workflow can't read your browser, so the alert target
+> lives in `watch-config.json`.
+
+### Push notifications (iPhone + desktop)
+
+1. **Generate keys once (locally):**
+   ```
+   node scripts/gen-vapid.mjs
+   ```
+   This writes the **public** key into `data/push-config.json` (safe to commit)
+   and prints the **private** key.
+2. **Add secrets** (Settings → Secrets and variables → Actions):
+   - `VAPID_PRIVATE_KEY` — the private key it printed (**never commit it**).
+   - `VAPID_SUBJECT` — a contact, e.g. `mailto:you@example.com`.
+3. **Commit** `data/push-config.json` (with the public key filled in).
+4. **Subscribe in the app:** open Raven → **Alerts & notifications** → *Turn on
+   push alerts*. Copy the subscription JSON it shows you and add it as the secret
+   `PUSH_SUBSCRIPTIONS` (a JSON array — you can paste one object or an array of
+   several devices).
+
+**iPhone:** web push only works when Raven is **installed to the Home Screen**
+(iOS 16.4+). Install it first (see below), then subscribe from the installed app.
+
+> **needs-decision — where subscriptions live.** On a static, public, serverless
+> app there's no private database to store push subscriptions in. Raven's default
+> is the **`PUSH_SUBSCRIPTIONS` Actions secret** (private, free, but you re-paste
+> if the subscription changes — rare). Alternatives if you prefer: (a) commit a
+> `data/push-subscriptions.json` array — simplest, but the endpoints become
+> public (they still can't be pushed to without your private key); or (b) add a
+> tiny free serverless function to auto-store them. The sender reads the secret
+> **and** the file, so either works. Pick per your privacy comfort.
+
+### Email alerts
+
+1. In `data/watch-config.json`, set `alerts.email.enabled: true` and
+   `alerts.email.to: "you@example.com"`.
+2. Add your mail provider's **SMTP** credentials as Actions secrets:
+   - `SMTP_HOST` (e.g. `smtp.gmail.com`), `SMTP_USER`, `SMTP_PASS`
+   - optional: `SMTP_PORT` (default `587`; use `465` for SSL), `SMTP_FROM`
+   - For Gmail, use an **App Password**, not your normal password.
+
+That's it — the daily workflow emails you when the target is hit.
+
+## What else is new (all free, all on the static app)
+
+- **“Good-for-baby” preference** — toggle *Prefer baby-friendly flights* in your
+  trip. **Data limit:** the free feed gives only *cheapest fare per day*, with no
+  layover/duration/red-eye detail, so Raven can't filter itineraries. The toggle
+  is a reminder and, where possible, nudges the booking link toward direct
+  flights; confirm actual flight times at checkout. (If you later swap in a
+  richer price source that returns stops/duration, surface those fields here.)
+- **Multiple destinations** — list them in `watch-config.json` `destinations`
+  (e.g. `["GRU","GIG"]`). The app shows a **Compare destinations** table and you
+  pick which one to focus on in *Your trip*.
+- **Price-freeze / bookmark** — tap **☆ Bookmark** on a cheapest day to freeze a
+  fare in your browser; the *Saved fares* card shows it vs the current price.
+- **“Any date” whole-month mode** — set *Earliest/Latest departure* to narrow to
+  specific days, or tick **“Any date”** to use the whole month(s).
+- **Baggage panel** — a reference list of airline baggage rules
+  ([`data/baggage.json`](data/baggage.json)). **Reference only — verify at the
+  airline.**
+- **Deep-link to buy** — every cheapest day has a **Book** button that opens an
+  Aviasales search for that exact route/date/party. Set your Travelpayouts
+  affiliate `marker` in `watch-config.json` to earn commission (never hardcoded).
+
 ## How “buy vs wait” is decided (transparent, simple rules)
 
 Raven looks at the series of cheapest estimated totals over time. Let:
@@ -144,6 +222,11 @@ estimate:
 - **GitHub Pages** — free static hosting.
 - **GitHub Actions** — unlimited minutes on public repos.
 - **Travelpayouts Data API** — free, no per-call cost.
+- **Web Push** — the browser push services (Apple/Google/Mozilla) are free; the
+  workflow signs pushes with your own VAPID keys.
+- **Email** — sent via your own mail provider's SMTP (most have a free tier).
+- **`web-push` / `nodemailer`** — free open-source libraries, installed only in
+  CI. The PWA itself has **zero** dependencies.
 
 No paid services are used anywhere.
 
@@ -154,26 +237,56 @@ The price source is expected to change over time. Only one function needs editin
 return a map `{ "YYYY-MM-DD": price }` of the cheapest fare per day for one
 origin→destination in one month. Everything downstream stays the same.
 
-## Regenerating the sample data
+## Regenerating / checking locally
 
 ```
+node scripts/selfcheck.mjs    # cheapest-day regression test (no deps)
 node scripts/gen-seed.mjs     # rewrites data/history.json as sample (deterministic)
+node scripts/gen-vapid.mjs    # generate push (VAPID) keys, once
 node scripts/gen-icons.py     # regenerates the PWA icons
 ```
 
 ---
 
-## Roadmap (deferred — NOT in v1)
+## Delivered (was the v1 roadmap)
 
-These are intentionally left for later phases:
+All of these now ship — see the sections above for setup and limits:
 
-- Push notifications and email alerts
-- "Good-for-baby" flight rules (layovers, night flights, etc.)
-- Multiple destinations at once
-- Price-freeze / bookmark a fare
-- "Any date" whole-month mode
-- Baggage fees panel
-- Deep-link straight to a booking page
+- ✅ Push notifications (iPhone + desktop) and ✅ email alerts
+- ✅ "Good-for-baby" flight preference (within the data limit noted above)
+- ✅ Multiple destinations at once, with a comparison table
+- ✅ Price-freeze / bookmark a fare
+- ✅ "Any date" whole-month mode (plus optional day-level bounds)
+- ✅ Baggage reference panel
+- ✅ Deep-link straight to a booking page (with affiliate marker)
+
+### The "cheapest day" fix
+
+The Travelpayouts calendar returns cheap fares for dates **outside** the month
+you asked for. Raven now keeps only in-month dates before choosing the cheapest
+(in the watcher **and** defensively in the app), and the app restricts the
+"cheapest day in your window" to your configured window. Proof:
+
+```
+node scripts/selfcheck.mjs     # regression test for the cheapest-day bug
+```
+
+It also runs in CI before every fetch.
+
+---
+
+## New GitHub Actions secrets (summary)
+
+All optional; add only the ones you use. None are ever committed.
+
+| Secret | For | Notes |
+| --- | --- | --- |
+| `TRAVELPAYOUTS_TOKEN` | prices | required for live data (existing) |
+| `VAPID_PRIVATE_KEY` | push | from `node scripts/gen-vapid.mjs` |
+| `VAPID_SUBJECT` | push | e.g. `mailto:you@example.com` |
+| `PUSH_SUBSCRIPTIONS` | push | JSON array of subscriptions (from the app) |
+| `SMTP_HOST` / `SMTP_USER` / `SMTP_PASS` | email | your mail provider |
+| `SMTP_PORT` / `SMTP_FROM` | email | optional (default 587 / = SMTP_USER) |
 
 ---
 
@@ -181,13 +294,20 @@ These are intentionally left for later phases:
 
 ```
 index.html                     app shell
-styles.css  app.js  sw.js      UI, logic, offline service worker
+styles.css  app.js  sw.js      UI, logic, offline service worker + web push
 manifest.webmanifest           PWA manifest
 icons/  apple-touch-icon.png   installable icons
-data/watch-config.json         what the watcher fetches (edit to change routes)
+data/watch-config.json         what the watcher fetches + alert config (edit this)
 data/history.json              price history (sample now; live after first run)
+data/push-config.json          VAPID public key (safe to commit; empty = off)
+data/baggage.json              airline baggage reference (editable)
 scripts/fetch-prices.mjs       the daily watcher (run by CI)
+scripts/notify.mjs             sends push + email when target hit (run by CI)
+scripts/gen-vapid.mjs          generate VAPID keys (run once, locally)
+scripts/selfcheck.mjs          cheapest-day regression test
+scripts/lib/prices.mjs         shared in-month price helpers
 scripts/gen-seed.mjs           regenerates the sample history
 scripts/gen-icons.py           regenerates icons
+package.json                   CI-only deps (web-push, nodemailer); the PWA has none
 .github/workflows/watch-prices.yml   the daily cron workflow
 ```

@@ -1,10 +1,20 @@
 {
-  "_comment": "Defines what the daily GitHub Actions watcher fetches. The PWA trip profile (in localStorage) drives what the app SHOWS and alerts on; this file drives what actually gets fetched. To watch a different route/window, edit this file and commit it — the next daily run picks it up. Keep origins to a handful (each is one API call per month).",
+  "_comment": "Defines what the daily GitHub Actions watcher fetches and alerts on. The PWA trip profile (in localStorage) drives what the app SHOWS; this file drives what actually gets fetched and what the server-side push/email alerts use. To watch a different route/window, edit this file and commit it — the next daily run picks it up. Keep origins × destinations to a handful (each pair is one API call per month).",
   "currency": "EUR",
   "origins": ["AMS", "BRU", "DUS", "EIN"],
+  "destinations": ["GRU", "GIG"],
   "destination": "GRU",
   "months": ["2027-02", "2027-03"],
   "tripType": "round",
   "daysAtDestination": 28,
-  "travellers": { "adults": 2, "lapInfants": 1 }
+  "travellers": { "adults": 2, "lapInfants": 1 },
+  "marker": "",
+  "alerts": {
+    "_comment": "Server-side alerts (push + email) sent by the daily workflow when the cheapest in-window estimated total is at or below targetPrice. Leave targetPrice null to disable all alerts. windowStartDate/windowEndDate optionally narrow which departure days count (empty = whole months).",
+    "targetPrice": null,
+    "windowStartDate": "",
+    "windowEndDate": "",
+    "push": { "enabled": true },
+    "email": { "enabled": false, "to": "" }
+  }
 }

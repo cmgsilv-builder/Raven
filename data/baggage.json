@@ -1,0 +1,41 @@
+{
+  "_comment": "Reference-only baggage summary for airlines common on Europe->Brazil routes. Rules change often and vary by fare class and route — always verify on the airline's own site and at check-in. Edit freely.",
+  "updated": "2026-09",
+  "airlines": [
+    {
+      "airline": "KLM",
+      "carryOn": "1 bag up to 12 kg + 1 small accessory (Economy).",
+      "checkedEconomy": "Often 1 × 23 kg on intercontinental Economy; lowest 'Light' fares may exclude checked bags.",
+      "infant": "Lap infant: usually 1 × 23 kg checked bag + a collapsible stroller/car seat.",
+      "notes": "Confirm at booking — checked allowance depends on the fare (Light/Standard/Flex)."
+    },
+    {
+      "airline": "TAP Air Portugal",
+      "carryOn": "1 bag up to 8 kg + 1 personal item.",
+      "checkedEconomy": "Typically 1 × 23 kg to Brazil on Basic/Classic; Discount fares are carry-on only.",
+      "infant": "Lap infant: 1 × 10 kg checked bag + stroller.",
+      "notes": "Brazil routes sometimes allow 2 bags on higher fares — check your fare."
+    },
+    {
+      "airline": "Lufthansa",
+      "carryOn": "1 bag up to 8 kg + 1 personal item.",
+      "checkedEconomy": "1 × 23 kg on most intercontinental Economy; 'Light' fares carry-on only.",
+      "infant": "Lap infant: 1 × 23 kg + foldable stroller.",
+      "notes": "Allowance shown during booking for your exact fare."
+    },
+    {
+      "airline": "Air France",
+      "carryOn": "1 bag up to 12 kg + 1 accessory.",
+      "checkedEconomy": "Usually 1 × 23 kg to Brazil; 'Light' fares exclude checked bags.",
+      "infant": "Lap infant: 1 × 23 kg + stroller/car seat.",
+      "notes": "Second bag purchasable; cheaper online than at the airport."
+    },
+    {
+      "airline": "Iberia",
+      "carryOn": "1 bag up to 10 kg + 1 personal item.",
+      "checkedEconomy": "1 × 23 kg on long-haul Economy; 'Basic' fares carry-on only.",
+      "infant": "Lap infant: 1 × 23 kg + stroller.",
+      "notes": "Verify — Iberia and partner-operated flights can differ."
+    }
+  ]
+}

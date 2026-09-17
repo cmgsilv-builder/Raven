@@ -6,9 +6,12 @@
   "use strict";
 
   // ---- Config / constants ---------------------------------------------------
-  const APP_VERSION = "1.0.0";
+  const APP_VERSION = "2.0.0";
   const HISTORY_URL = "./data/history.json";
+  const PUSH_CONFIG_URL = "./data/push-config.json";
+  const BAGGAGE_URL = "./data/baggage.json";
   const LS_KEY = "raven.trip.v1";
+  const LS_BOOKMARKS = "raven.bookmarks.v1";
 
   // Pricing model (documented, rough — see README "Estimates"):
   //  - history stores per-adult ONE-WAY cheapest fare.
@@ -47,6 +50,13 @@
     daysAtDestination: 28,
     windowStart: "2027-02",
     windowEnd: "2027-03",
+    // Optional day-precision bounds inside the window months. Empty = whole months.
+    windowStartDate: "",
+    windowEndDate: "",
+    // "Any date" mode: ignore the day bounds and use the whole month(s).
+    anyDate: false,
+    // Prefer baby-friendly flights (direct / no red-eye) where the data allows.
+    babyFriendly: false,
     targetPrice: null,
   };
 
@@ -68,6 +78,8 @@
   // ---- State ----------------------------------------------------------------
   let trip = loadTrip();
   let history = null;
+  let pushConfig = null; // { publicKey } from data/push-config.json (optional)
+  let baggage = null;    // data/baggage.json (optional reference data)
 
   const $ = (sel) => document.querySelector(sel);
   const el = (tag, props = {}, kids = []) => {
@@ -127,38 +139,89 @@
     return trip.origins.filter((o) => watched.has(o));
   }
 
+  // destinations present in the data
+  function watchedDestinations() {
+    if (!history) return [];
+    const set = new Set();
+    for (const s of history.snapshots) for (const p of s.prices) if (p.destination) set.add(p.destination);
+    return [...set];
+  }
+
+  // destination the app focuses on for advice/chart/calendar
+  function primaryDestination() {
+    const watched = watchedDestinations();
+    if (trip.destination && watched.includes(trip.destination)) return trip.destination;
+    return watched[0] || trip.destination;
+  }
+
+  // Is an ISO day inside the user's window? (months + optional day bounds)
+  // In "any date" mode the day bounds are ignored (whole month(s)).
+  function dayInWindow(dateStr, months) {
+    if (typeof dateStr !== "string") return false;
+    const ms = months || monthsInWindow(trip.windowStart, trip.windowEnd);
+    if (!ms.includes(dateStr.slice(0, 7))) return false;
+    if (trip.anyDate) return true;
+    if (trip.windowStartDate && dateStr < trip.windowStartDate) return false;
+    if (trip.windowEndDate && dateStr > trip.windowEndDate) return false;
+    return true;
+  }
+
+  // Cheapest in-window { price, date } for one price entry. Prefers the
+  // day-by-day calendar so an out-of-window date can never be chosen — this is
+  // the app-side half of the "cheapest day" bug fix (defends old snapshots too).
+  function entryCheapestInWindow(p, months) {
+    if (p.calendar && Object.keys(p.calendar).length) {
+      let best = Infinity, bestDate = null;
+      for (const [date, price] of Object.entries(p.calendar)) {
+        if (price == null || !dayInWindow(date, months)) continue;
+        if (price < best) { best = price; bestDate = date; }
+      }
+      return bestDate ? { price: best, date: bestDate } : null;
+    }
+    // Older snapshot without a calendar: only trust the stored cheapest when its
+    // date is verifiably inside the window; otherwise skip it.
+    if (p.cheapest != null && dayInWindow(p.cheapestDate, months)) {
+      return { price: p.cheapest, date: p.cheapestDate };
+    }
+    return null;
+  }
+
   // cheapest per-adult one-way fare in one snapshot for the active origins+window
-  function snapshotCheapest(snapshot, origins, months) {
+  function snapshotCheapest(snapshot, origins, months, destination) {
     let best = Infinity;
     let bestEntry = null;
+    let bestDate = null;
     for (const p of snapshot.prices) {
       if (!origins.includes(p.origin)) continue;
+      if (destination && p.destination !== destination) continue;
       if (!months.includes(p.month)) continue;
-      if (p.cheapest == null) continue;
-      if (p.cheapest < best) { best = p.cheapest; bestEntry = p; }
+      const c = entryCheapestInWindow(p, months);
+      if (!c) continue;
+      if (c.price < best) { best = c.price; bestEntry = p; bestDate = c.date; }
     }
-    return bestEntry ? { perAdult: best, entry: bestEntry } : null;
+    return bestEntry ? { perAdult: best, entry: bestEntry, cheapestDate: bestDate } : null;
   }
 
   // series of estimated trip totals over time (only snapshots with data)
   function buildSeries() {
     const origins = activeOrigins();
     const months = monthsInWindow(trip.windowStart, trip.windowEnd);
+    const destination = primaryDestination();
     const mult = partyMultiplier();
     const series = [];
-    if (!history) return { series, origins, months };
+    if (!history) return { series, origins, months, destination };
     for (const s of history.snapshots) {
-      const c = snapshotCheapest(s, origins, months);
+      const c = snapshotCheapest(s, origins, months, destination);
       if (!c) continue;
       series.push({
         date: s.date,
         perAdult: c.perAdult,
         total: Math.round(c.perAdult * mult),
         origin: c.entry.origin,
-        cheapestDate: c.entry.cheapestDate,
+        cheapestDate: c.cheapestDate,
       });
     }
-    return { series, origins, months };
+    return { series, origins, months, destination };
   }
 
   const median = (arr) => {
@@ -383,6 +446,7 @@
     const latest = history.snapshots[history.snapshots.length - 1];
     const origins = activeOrigins();
     const months = monthsInWindow(trip.windowStart, trip.windowEnd);
+    const destination = primaryDestination();
     const mult = partyMultiplier();
 
     if (!origins.length) {
@@ -392,13 +456,16 @@
 
     let renderedAny = false;
     for (const month of months) {
-      // cheapest per day across active origins (per-adult -> total)
-      const perDay = {};
+      // cheapest per day across active origins for the primary destination.
+      // Only in-month, in-window days count (the app-side cheapest-day fix).
+      const perDay = {};       // date -> total
+      const perDayOrigin = {}; // date -> origin giving that cheapest
       for (const p of latest.prices) {
-        if (!origins.includes(p.origin) || p.month !== month || !p.calendar) continue;
+        if (!origins.includes(p.origin) || p.destination !== destination || p.month !== month || !p.calendar) continue;
         for (const [date, price] of Object.entries(p.calendar)) {
+          if (date.slice(0, 7) !== month || !dayInWindow(date, months)) continue;
           const total = Math.round(price * mult);
-          if (perDay[date] == null || total < perDay[date]) perDay[date] = total;
+          if (perDay[date] == null || total < perDay[date]) { perDay[date] = total; perDayOrigin[date] = p.origin; }
         }
       }
       const entries = Object.entries(perDay);
@@ -417,6 +484,22 @@
       const [yy, mm] = month.split("-").map(Number);
       const label = new Date(Date.UTC(yy, mm - 1, 1)).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
       box.appendChild(el("h3", { text: `${label} — cheapest ${fmtMoney(lo, cur())} on ${fmtDate(cheapestDate)}` }));
+
+      // Actions for the cheapest day: deep-link to book + bookmark the fare.
+      const cheapestOrigin = perDayOrigin[cheapestDate];
+      const acts = el("div", { class: "cal-actions" });
+      acts.appendChild(el("a", {
+        class: "btn-small btn-book",
+        href: aviasalesUrl({ origin: cheapestOrigin, destination, departDate: cheapestDate }),
+        target: "_blank", rel: "noopener noreferrer",
+        text: `Book ${cheapestOrigin}→${destination} ↗`,
+      }));
+      const bmBtn = el("button", { type: "button", class: "btn-small", text: "☆ Bookmark" });
+      bmBtn.addEventListener("click", () => addBookmark({
+        origin: cheapestOrigin, destination, date: cheapestDate, total: lo,
+      }));
+      acts.appendChild(bmBtn);
+      box.appendChild(acts);
 
       const grid = el("div", { class: "cal-grid" });
       ["S", "M", "T", "W", "T", "F", "S"].forEach((d) => grid.appendChild(el("div", { class: "cal-dow", text: d })));
@@ -464,16 +547,20 @@
     if (!history || !history.snapshots.length) return;
     const latest = history.snapshots[history.snapshots.length - 1];
     const months = monthsInWindow(trip.windowStart, trip.windowEnd);
+    const destination = primaryDestination();
     const mult = partyMultiplier();
     const watched = watchedOrigins();
 
-    // cheapest per origin across window (per-adult) from latest snapshot
+    // cheapest per origin across window (per-adult) from latest snapshot,
+    // for the primary destination, restricted to in-window dates.
     const rows = [];
     for (const origin of watched) {
       let best = Infinity, bestDate = null;
       for (const p of latest.prices) {
-        if (p.origin !== origin || !months.includes(p.month) || p.cheapest == null) continue;
-        if (p.cheapest < best) { best = p.cheapest; bestDate = p.cheapestDate; }
+        if (p.origin !== origin || p.destination !== destination || !months.includes(p.month)) continue;
+        const c = entryCheapestInWindow(p, months);
+        if (!c) continue;
+        if (c.price < best) { best = c.price; bestDate = c.date; }
       }
       rows.push({
         origin,
@@ -511,6 +598,267 @@
     wrap.appendChild(el("p", { class: "cmp-note", text: "* Rough driving time from Eindhoven — for planning only." }));
   }
 
+  // ---- Deep-link to book ----------------------------------------------------
+  // Builds an Aviasales search URL for a specific fare. The affiliate marker is
+  // read from the committed config (never hardcoded); omitted if not set.
+  function aviasalesUrl({ origin, destination, departDate }) {
+    if (!origin || !destination || !departDate) return "https://www.aviasales.com/";
+    const ddmm = (iso) => {
+      const [, m, d] = iso.split("-");
+      return `${d}${m}`;
+    };
+    let path = `${origin}${ddmm(departDate)}${destination}`;
+    if (trip.tripType === "round") {
+      const back = new Date(departDate + "T00:00:00Z");
+      back.setUTCDate(back.getUTCDate() + (Number(trip.daysAtDestination) || 28));
+      path += ddmm(back.toISOString().slice(0, 10));
+    }
+    const adults = Math.max(1, Number(trip.adults) || 1);
+    const infants = Math.max(0, Number(trip.lapInfants) || 0);
+    // Aviasales passenger suffix: adults[children][infants]
+    path += infants ? `${adults}0${infants}` : `${adults}`;
+
+    const params = [];
+    const marker = (history && history.config && history.config.marker) || "";
+    if (marker) params.push(`marker=${encodeURIComponent(marker)}`);
+    let url = `https://www.aviasales.com/search/${path}`;
+    if (params.length) url += `?${params.join("&")}`;
+    return url;
+  }
+
+  // ---- Price-freeze / bookmarks --------------------------------------------
+  function loadBookmarks() {
+    const raw = storage.get(LS_BOOKMARKS);
+    if (!raw) return [];
+    try { const a = JSON.parse(raw); return Array.isArray(a) ? a : []; } catch { return []; }
+  }
+  function saveBookmarks(list) { return storage.set(LS_BOOKMARKS, JSON.stringify(list)); }
+
+  function addBookmark({ origin, destination, date, total }) {
+    const list = loadBookmarks();
+    list.unshift({
+      origin, destination, date, total,
+      currency: cur(),
+      savedAt: new Date().toISOString(),
+    });
+    if (list.length > 20) list.length = 20;
+    saveBookmarks(list);
+    renderBookmarks();
+    toast(`Bookmarked ${fmtMoney(total, cur())} · ${origin}→${destination} ${fmtDate(date)}`);
+  }
+
+  function removeBookmark(idx) {
+    const list = loadBookmarks();
+    list.splice(idx, 1);
+    saveBookmarks(list);
+    renderBookmarks();
+  }
+
+  // Current cheapest total for a saved bookmark's route+date, from latest data.
+  function currentTotalFor(origin, destination, date) {
+    if (!history || !history.snapshots.length) return null;
+    const latest = history.snapshots[history.snapshots.length - 1];
+    const mult = partyMultiplier();
+    for (const p of latest.prices) {
+      if (p.origin !== origin || p.destination !== destination || !p.calendar) continue;
+      const price = p.calendar[date];
+      if (price != null) return Math.round(price * mult);
+    }
+    return null;
+  }
+
+  function renderBookmarks() {
+    const wrap = $("#bookmarksWrap");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    const list = loadBookmarks();
+    if (!list.length) {
+      wrap.appendChild(el("p", { class: "fine", text: "No saved fares yet. Tap “☆ Bookmark” on a cheapest day to freeze a price and compare it later." }));
+      return;
+    }
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      const now = currentTotalFor(b.origin, b.destination, b.date);
+      const row = el("div", { class: "bm-row" });
+      const info = el("div", { class: "bm-info" }, [
+        el("div", { class: "bm-route", text: `${b.origin} → ${b.destination} · ${fmtDate(b.date)}` }),
+        el("div", { class: "bm-meta", text: `Saved ${fmtMoney(b.total, b.currency)} on ${fmtDate(b.savedAt.slice(0, 10))}` }),
+      ]);
+      let deltaNode;
+      if (now == null) {
+        deltaNode = el("div", { class: "bm-delta flat", text: "no current price" });
+      } else {
+        const diff = now - b.total;
+        const cls = diff < 0 ? "down" : diff > 0 ? "up" : "flat";
+        const sign = diff > 0 ? "+" : "";
+        deltaNode = el("div", { class: "bm-delta " + cls, text: `now ${fmtMoney(now, cur())} (${sign}${fmtMoney(diff, cur())})` });
+      }
+      const del = el("button", { type: "button", class: "bm-del", "aria-label": "Remove bookmark", text: "×" });
+      del.addEventListener("click", () => removeBookmark(i));
+      row.appendChild(info);
+      row.appendChild(deltaNode);
+      row.appendChild(del);
+      wrap.appendChild(row);
+    }
+  }
+
+  // ---- Compare destinations -------------------------------------------------
+  function renderDestinationCompare() {
+    const card = $("#destCompareCard");
+    const wrap = $("#destCompare");
+    if (!card || !wrap) return;
+    wrap.innerHTML = "";
+    const dests = watchedDestinations();
+    if (!history || !history.snapshots.length || dests.length < 2) {
+      // Only meaningful when more than one destination is watched.
+      card.classList.add("hidden");
+      return;
+    }
+    card.classList.remove("hidden");
+
+    const latest = history.snapshots[history.snapshots.length - 1];
+    const origins = activeOrigins();
+    const months = monthsInWindow(trip.windowStart, trip.windowEnd);
+    const mult = partyMultiplier();
+
+    const rows = [];
+    for (const dest of dests) {
+      let best = Infinity, bestDate = null, bestOrigin = null;
+      for (const p of latest.prices) {
+        if (p.destination !== dest || !origins.includes(p.origin) || !months.includes(p.month)) continue;
+        const c = entryCheapestInWindow(p, months);
+        if (!c) continue;
+        if (c.price < best) { best = c.price; bestDate = c.date; bestOrigin = p.origin; }
+      }
+      rows.push({
+        dest,
+        total: best === Infinity ? null : Math.round(best * mult),
+        date: bestDate,
+        origin: bestOrigin,
+        primary: dest === primaryDestination(),
+      });
+    }
+    rows.sort((a, b) => (a.total ?? Infinity) - (b.total ?? Infinity));
+    const bestTotal = rows.find((r) => r.total != null)?.total;
+
+    const table = el("table", { class: "cmp-table" });
+    table.appendChild(el("thead", {}, el("tr", {}, [
+      el("th", { text: "To" }),
+      el("th", { text: "Best from" }),
+      el("th", { text: "Cheapest date" }),
+      el("th", { text: "Est. total", style: "text-align:right" }),
+    ])));
+    const tbody = el("tbody");
+    for (const r of rows) {
+      const tr = el("tr");
+      if (r.total != null && r.total === bestTotal) tr.classList.add("best");
+      const nameCell = el("td");
+      nameCell.appendChild(document.createTextNode(r.dest));
+      if (r.primary) nameCell.appendChild(el("span", { class: "cmp-badge", text: "shown" }));
+      tr.appendChild(nameCell);
+      tr.appendChild(el("td", { text: r.origin || "—" }));
+      tr.appendChild(el("td", { text: r.date ? fmtDate(r.date) : "—" }));
+      tr.appendChild(el("td", { class: "num", text: r.total != null ? fmtMoney(r.total, cur()) : "no data" }));
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    wrap.appendChild(el("p", { class: "cmp-note", text: "Pick which destination the app shows in “Your trip”. Add more in data/watch-config.json." }));
+  }
+
+  // ---- Baggage reference panel ---------------------------------------------
+  function renderBaggage() {
+    const wrap = $("#baggageWrap");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    if (!baggage || !Array.isArray(baggage.airlines) || !baggage.airlines.length) {
+      wrap.appendChild(el("p", { class: "fine", text: "Baggage reference not loaded." }));
+      return;
+    }
+    for (const a of baggage.airlines) {
+      const item = el("details", { class: "bag-item" });
+      item.appendChild(el("summary", { text: a.airline }));
+      const dl = el("div", { class: "bag-body" });
+      const add = (lbl, val) => { if (val) dl.appendChild(el("p", { html: `<b>${lbl}:</b> ${val}` })); };
+      add("Carry-on", a.carryOn);
+      add("Checked (economy)", a.checkedEconomy);
+      add("Infant (lap)", a.infant);
+      add("Notes", a.notes);
+      item.appendChild(dl);
+      wrap.appendChild(item);
+    }
+    const upd = baggage.updated ? ` Last edited ${baggage.updated}.` : "";
+    wrap.appendChild(el("p", { class: "fine", text: `Reference only — airlines change rules often. Always verify on the airline's site and at check-in.${upd}` }));
+  }
+
+  // ---- Notifications status (push + email) ----------------------------------
+  function renderNotify() {
+    const pushStat = $("#pushStatus");
+    const emailStat = $("#emailStatus");
+    const subBtn = $("#pushSubscribe");
+    if (!pushStat || !subBtn) return;
+
+    const configured = pushConfig && pushConfig.publicKey;
+    const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+    if (!supported) {
+      pushStat.textContent = "This browser/device can't do web push. On iPhone, install Raven to the Home Screen first (iOS 16.4+).";
+      subBtn.classList.add("hidden");
+    } else if (!configured) {
+      pushStat.textContent = "Push not set up yet. The owner runs scripts/gen-vapid.mjs and adds the keys (see README).";
+      subBtn.classList.add("hidden");
+    } else {
+      subBtn.classList.remove("hidden");
+      subBtn.textContent = Notification.permission === "granted" ? "Re-subscribe / copy subscription" : "Turn on push alerts";
+      pushStat.textContent = "Daily check: if your target price is hit, Raven pushes an alert — even with the app closed. iPhone needs Raven installed to the Home Screen (iOS 16.4+).";
+    }
+
+    if (emailStat) {
+      const cfg = (history && history.config && history.config.email) || null;
+      if (cfg && cfg.enabled && cfg.to) {
+        emailStat.textContent = `Email alerts ON → ${cfg.to}. Sent by the daily workflow when your target is hit.`;
+      } else {
+        emailStat.textContent = "Email alerts off. Turn on in data/watch-config.json and add SMTP secrets (see README).";
+      }
+    }
+  }
+
+  function urlB64ToUint8Array(base64) {
+    const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+    const b64 = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(b64);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  async function subscribePush() {
+    try {
+      if (!(pushConfig && pushConfig.publicKey)) { toast("Push not configured"); return; }
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") { toast("Notifications not allowed"); return; }
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlB64ToUint8Array(pushConfig.publicKey),
+      });
+      showSubscription(JSON.stringify(sub));
+    } catch (err) {
+      console.error("Push subscribe failed:", err);
+      toast("Could not subscribe to push");
+    }
+  }
+
+  function showSubscription(json) {
+    const box = $("#pushSubBox");
+    const ta = $("#pushSubJson");
+    if (!box || !ta) return;
+    ta.value = json;
+    box.classList.remove("hidden");
+    ta.focus();
+    ta.select();
+  }
+
   function renderEstimateNote() {
     $("#estimateNote").textContent =
       "Prices are estimates from Travelpayouts and change constantly. Round-trip is estimated as 2× one-way; a lap infant is estimated at ~10% of an adult fare plus taxes. The exact infant price and final total appear at the airline checkout.";
@@ -525,6 +873,9 @@
     renderChart(series);
     renderCalendar();
     renderCompare();
+    renderDestinationCompare();
+    renderBookmarks();
+    renderNotify();
     renderEstimateNote();
   }
 
@@ -553,9 +904,23 @@
     $("#daysAtDestination").value = trip.daysAtDestination;
     $("#windowStart").value = trip.windowStart;
     $("#windowEnd").value = trip.windowEnd;
+    $("#windowStartDate").value = trip.windowStartDate || "";
+    $("#windowEndDate").value = trip.windowEndDate || "";
+    $("#anyDate").checked = !!trip.anyDate;
+    $("#babyFriendly").checked = !!trip.babyFriendly;
     $("#targetPrice").value = trip.targetPrice ?? "";
+    updateAnyDateUI();
     renderOriginChips();
     document.querySelectorAll(".cur").forEach((n) => (n.textContent = cur()));
+  }
+
+  // Grey out the day-precision bounds while "any date" mode is on.
+  function updateAnyDateUI() {
+    const on = $("#anyDate").checked;
+    ["#windowStartDate", "#windowEndDate"].forEach((sel) => {
+      const inp = $(sel);
+      if (inp) { inp.disabled = on; inp.closest(".field")?.classList.toggle("disabled", on); }
+    });
   }
 
   function readForm() {
@@ -574,6 +939,13 @@
     trip.windowStart = $("#windowStart").value || DEFAULT_TRIP.windowStart;
     trip.windowEnd = $("#windowEnd").value || DEFAULT_TRIP.windowEnd;
     if (trip.windowEnd < trip.windowStart) trip.windowEnd = trip.windowStart;
+    trip.windowStartDate = $("#windowStartDate").value || "";
+    trip.windowEndDate = $("#windowEndDate").value || "";
+    if (trip.windowStartDate && trip.windowEndDate && trip.windowEndDate < trip.windowStartDate) {
+      trip.windowEndDate = trip.windowStartDate;
+    }
+    trip.anyDate = $("#anyDate").checked;
+    trip.babyFriendly = $("#babyFriendly").checked;
     const tp = $("#targetPrice").value;
     trip.targetPrice = tp === "" ? null : Math.max(0, Number(tp) || 0);
   }
@@ -621,7 +993,25 @@
       $("#toggleTrip").setAttribute("aria-expanded", String(!hidden));
     });
 
+    $("#anyDate").addEventListener("change", updateAnyDateUI);
+
     $("#reloadData").addEventListener("click", () => loadHistory(true));
+  }
+
+  function wireNotify() {
+    const subBtn = $("#pushSubscribe");
+    if (subBtn) subBtn.addEventListener("click", subscribePush);
+    const copyBtn = $("#pushCopy");
+    if (copyBtn) copyBtn.addEventListener("click", async () => {
+      const ta = $("#pushSubJson");
+      try {
+        await navigator.clipboard.writeText(ta.value);
+        toast("Subscription copied");
+      } catch {
+        ta.focus(); ta.select();
+        toast("Select-all + copy the text");
+      }
+    });
   }
 
   // ---- Data load ------------------------------------------------------------
@@ -647,6 +1037,21 @@
     }
   }
 
+  // Optional side-data: push public key + baggage reference. Both are optional;
+  // the app renders fine without them.
+  async function loadExtras() {
+    try {
+      const res = await fetch(PUSH_CONFIG_URL, { cache: "default" });
+      if (res.ok) pushConfig = await res.json();
+    } catch { /* push simply stays "not set up" */ }
+    try {
+      const res = await fetch(BAGGAGE_URL, { cache: "default" });
+      if (res.ok) baggage = await res.json();
+    } catch { /* baggage panel shows "not loaded" */ }
+    renderNotify();
+    renderBaggage();
+  }
+
   // ---- Service worker -------------------------------------------------------
   function registerSW() {
     if (!("serviceWorker" in navigator)) return;
@@ -658,7 +1063,10 @@
   // ---- Boot -----------------------------------------------------------------
   fillForm();
   wireForm();
+  wireNotify();
+  renderBookmarks();
   registerSW();
   loadHistory(false);
+  loadExtras();
   console.log(`Raven v${APP_VERSION} ready.`);
 })();

@@ -1,0 +1,4 @@
+{
+  "_comment": "Web Push public (VAPID) key the PWA subscribes with. Fill this by running `node scripts/gen-vapid.mjs` locally, then commit — it is PUBLIC and safe to commit. The matching PRIVATE key goes into the VAPID_PRIVATE_KEY GitHub Actions secret (never commit it). Empty publicKey = push not set up yet.",
+  "publicKey": ""
+}
