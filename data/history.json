@@ -36,7 +36,7 @@
   "snapshots": [
     {
       "date": "2026-09-17",
-      "ts": "2026-09-17T20:04:04.783Z",
+      "ts": "2026-09-17T20:04:47.292Z",
       "ok": true,
       "prices": [
         {
@@ -102,6 +102,24 @@
           "cheapestDate": null,
           "cheapest": null,
           "calendar": {}
+        },
+        {
+          "origin": "LIS",
+          "destination": "NAT",
+          "month": "2027-02",
+          "cheapestDate": null,
+          "cheapest": null,
+          "calendar": {}
+        },
+        {
+          "origin": "LIS",
+          "destination": "NAT",
+          "month": "2027-03",
+          "cheapestDate": "2027-03-14",
+          "cheapest": 979,
+          "calendar": {
+            "2027-03-14": 979
+          }
         },
         {
           "origin": "AMS",
@@ -248,24 +266,6 @@
             "2027-01-04": 1187,
             "2027-01-06": 1298,
             "2027-01-19": 896
-          }
-        },
-        {
-          "origin": "LIS",
-          "destination": "NAT",
-          "month": "2027-02",
-          "cheapestDate": null,
-          "cheapest": null,
-          "calendar": {}
-        },
-        {
-          "origin": "LIS",
-          "destination": "NAT",
-          "month": "2027-03",
-          "cheapestDate": "2027-03-14",
-          "cheapest": 979,
-          "calendar": {
-            "2027-03-14": 979
           }
         },
         {
