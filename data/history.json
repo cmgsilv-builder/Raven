@@ -13,6 +13,10 @@
       "EIN"
     ],
     "destination": "GRU",
+    "destinations": [
+      "GRU",
+      "GIG"
+    ],
     "months": [
       "2027-02",
       "2027-03"
@@ -22,14 +26,53 @@
     "travellers": {
       "adults": 2,
       "lapInfants": 1
+    },
+    "marker": "",
+    "email": {
+      "enabled": false,
+      "to": []
     }
   },
   "snapshots": [
     {
       "date": "2026-09-17",
-      "ts": "2026-09-17T09:13:40.886Z",
+      "ts": "2026-09-17T11:17:44.299Z",
       "ok": true,
       "prices": [
+        {
+          "origin": "LIS",
+          "destination": "NAT",
+          "month": "2027-02",
+          "cheapestDate": null,
+          "cheapest": null,
+          "calendar": {}
+        },
+        {
+          "origin": "LIS",
+          "destination": "NAT",
+          "month": "2027-03",
+          "cheapestDate": "2027-03-14",
+          "cheapest": 979,
+          "calendar": {
+            "2027-03-14": 979
+          }
+        },
+        {
+          "origin": "AMS",
+          "destination": "NAT",
+          "month": "2027-02",
+          "cheapestDate": null,
+          "cheapest": null,
+          "calendar": {}
+        },
+        {
+          "origin": "AMS",
+          "destination": "NAT",
+          "month": "2027-03",
+          "cheapestDate": null,
+          "cheapest": null,
+          "calendar": {}
+        },
         {
           "origin": "AMS",
           "destination": "GRU",
