@@ -31,8 +31,11 @@ import { dirname, join } from "node:path";
 import { filterCalendarToMonth, cheapestOf, mergeSnapshotPrices } from "./lib/prices.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const CONFIG_PATH = join(ROOT, "data", "watch-config.json");
-const HISTORY_PATH = join(ROOT, "data", "history.json");
+// Paths default to the committed data files but can be overridden via env so the
+// persistence regression test (scripts/selfcheck-persist.mjs) can exercise the
+// real write path against a throwaway copy instead of the committed history.
+const CONFIG_PATH = process.env.RAVEN_CONFIG_PATH || join(ROOT, "data", "watch-config.json");
+const HISTORY_PATH = process.env.RAVEN_HISTORY_PATH || join(ROOT, "data", "history.json");
 
 const API_BASE = "https://api.travelpayouts.com/v1/prices/calendar";
 const MAX_SNAPSHOTS = 400;
@@ -230,7 +233,15 @@ async function main() {
   console.log(`Wrote ${HISTORY_PATH} (${history.snapshots.length} snapshots).`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+export { main, fetchRoutes };
+
+// Auto-run only when executed directly (`node scripts/fetch-prices.mjs`), not
+// when imported by a test that wants to await main() with mocked fetch/paths.
+const invokedDirectly =
+  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (invokedDirectly) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

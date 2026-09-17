@@ -50,6 +50,9 @@ jobs:
       - name: Self-check (cheapest-day regression)
         run: node scripts/selfcheck.mjs
 
+      - name: Self-check (persistence + commit regression)
+        run: node scripts/selfcheck-persist.mjs
+
       - name: Fetch prices
         env:
           TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
@@ -75,10 +78,19 @@ jobs:
         run: |
           git config user.name "raven-bot"
           git config user.email "raven-bot@users.noreply.github.com"
-          git add data/history.json data/alert-state.json 2>/dev/null || true
+          # Stage each path on its OWN `git add`. Passing a not-yet-existing
+          # pathspec (alert-state.json only appears once alerts are configured)
+          # to a single `git add a b` makes git abort the WHOLE add and stage
+          # NOTHING — which silently dropped on-demand snapshots and left the
+          # app's "Search this route" spinner waiting for a commit that never
+          # came. Independent adds keep history.json staged regardless.
+          git add data/history.json
+          git add data/alert-state.json 2>/dev/null || true
+          echo "Staged changes in data/:"
+          git status --porcelain data/ || true
           if git diff --cached --quiet; then
-            echo "No data changes today."
+            echo "No data changes to commit."
           else
-            git commit -m "chore(data): daily price snapshot $(date -u +%Y-%m-%d)"
+            git commit -m "chore(data): price snapshot $(date -u +%Y-%m-%d)"
             git push
           fi
