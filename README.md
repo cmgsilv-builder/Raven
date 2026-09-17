@@ -48,11 +48,12 @@ Everything above is just the default. Change it in the **Your trip** screen; it'
 saved in your browser (`localStorage`).
 
 > **Note on what the app shows vs what is watched:** the app *displays and alerts*
-> on whatever you enter, but the fares it has are whatever the daily watcher
-> fetched. The watcher's routes live in [`data/watch-config.json`](data/watch-config.json).
-> If you pick an airport or destination that isn't in that file, the app says
-> "no data" for it. To watch something new, edit `watch-config.json` and commit —
-> the next daily run picks it up.
+> on whatever you enter, but the fares it has are whatever the watcher fetched.
+> The daily cron's routes live in [`data/watch-config.json`](data/watch-config.json).
+> If you pick an airport or destination that isn't in the data yet, the app says
+> "no data" for it — **but you can fetch it right away with the “🔎 Search this
+> route” button** (see [Search any route on demand](#search-any-route-on-demand-new)).
+> To add a route to the *daily* watch, edit `watch-config.json` and commit.
 
 ---
 
@@ -95,6 +96,83 @@ The workflow runs automatically every day. To get data right now without waiting
 
 Until the first real run, the app shows clearly-labelled **sample data** so you
 can see how it looks.
+
+---
+
+## Search any route on demand (new)
+
+Type **any** origins and destination in *Your trip* and tap **🔎 Search this
+route**. Raven asks GitHub to run the price watcher for exactly those routes,
+then auto-refreshes the page when the fresh fares land (~1–3 min). No more
+"nothing happened" when you enter a route the daily cron never fetched.
+
+Two clearly separated buttons in *Your trip*:
+
+- **🔎 Search this route** — tells the robot (GitHub Actions) to fetch fresh
+  fares now, then re-renders advice, prices, chart, calendar, destination,
+  airport comparison and taxes.
+- **Save trip** — just stores your settings in this browser (`localStorage`).
+
+### One-time: connect GitHub (token stays on your device)
+
+The button triggers the watcher through GitHub's REST API, which needs a token
+you create once. Open Raven → **Search live · connect GitHub** and follow the
+steps, or:
+
+1. Create a **fine-grained personal access token**:
+   **https://github.com/settings/personal-access-tokens/new**
+2. **Resource owner:** your account.
+3. **Repository access:** *Only select repositories* → **`cmgsilv-builder/Raven`**.
+4. **Repository permissions → Actions: Read and write.** Leave everything else at
+   *No access*. (That's the exact minimum: **Actions: Read and write** — write to
+   start the run, read to validate the token. Reading fresh data uses the public
+   raw file, so **Contents** is *not* required.)
+5. Generate, copy, and paste it into Raven's **Connect** box.
+
+> 🔒 **Your token never leaves your device except to call GitHub.** It's stored
+> only in this browser's `localStorage` (wrapped in try/catch). Raven sends it
+> *only* to `api.github.com` to start a search — it is never committed to the
+> repo, never logged, and never uploaded anywhere else. Tap **Disconnect / forget
+> token** to remove it. The repo (`cmgsilv-builder/Raven`) is hardcoded, so you
+> only ever paste the token.
+
+### How it works
+
+```
+  You: type LIS → NAT, tap "🔎 Search this route"
+        │
+        ▼  POST .../actions/workflows/watch-prices.yml/dispatches   (your token)
+   GitHub Actions runs scripts/fetch-prices.mjs for JUST that route
+        │  merges it into data/history.json (keeps the daily routes), commits
+        ▼
+   App polls the committed history, sees the new snapshot, re-renders everything
+```
+
+- The app dispatches with `ref: main` and `inputs` = your `origins`,
+  `destinations`, and window `months` (comma-separated).
+- It then polls the committed `history.json` (the public
+  `raw.githubusercontent.com` copy, which updates within seconds) every ~12s for a
+  newer snapshot, with a ~6-minute timeout and a visible *searching…* / *done* /
+  *timed out* state.
+- If the free source has **no fares** for a route (it happens — e.g. EIN/DUS, or
+  an unusual pair), Raven says so plainly: *"No fares found for LIS → NAT — the
+  free data source has no cached prices for this route."*
+
+### On-demand workflow inputs
+
+The daily workflow also accepts manual/on-demand inputs (used by the button, and
+runnable yourself from **Actions → Daily price watch → Run workflow**):
+
+| Input | Example | Empty means |
+| --- | --- | --- |
+| `origins` | `LIS,AMS` | use `watch-config.json` origins (a normal daily run) |
+| `destinations` | `NAT` | use `watch-config.json` destinations |
+| `months` | `2027-02,2027-03` | use `watch-config.json` months |
+
+When origins **and** destinations are provided, `scripts/fetch-prices.mjs` runs in
+on-demand mode: it fetches only those routes and **merges** them into the latest
+snapshot (keeping the daily-watched routes; re-searching a route just refreshes
+it, never duplicates it). With no inputs it behaves exactly as the daily cron.
 
 ---
 
