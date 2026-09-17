@@ -29,6 +29,8 @@ function rng(seed) {
 
 // baseline per-adult one-way fare (EUR) per origin — GRU is long-haul
 const BASE = { AMS: 690, BRU: 720, DUS: 705, EIN: 760, default: 730 };
+// small per-destination adjustment so a second destination looks distinct
+const DEST_ADJ = { GRU: 1.0, GIG: 1.05, default: 1.0 };
 
 function daysInMonth(month) {
   const [y, m] = month.split("-").map(Number);
@@ -38,6 +40,9 @@ function daysInMonth(month) {
 async function main() {
   const config = JSON.parse(await readFile(CONFIG_PATH, "utf8"));
   const rand = rng(20270214);
+  const destinations = (config.destinations && config.destinations.length)
+    ? config.destinations
+    : [config.destination].filter(Boolean);
 
   const snapshots = [];
   const start = new Date();
@@ -59,27 +64,30 @@ async function main() {
     const prices = [];
     for (const origin of config.origins) {
       const base = BASE[origin] ?? BASE.default;
-      for (const month of config.months) {
-        const dim = daysInMonth(month);
-        const calendar = {};
-        // per-day fares across the month with a mid-month dip
-        for (let day = 1; day <= dim; day++) {
-          const dd = String(day).padStart(2, "0");
-          const midDip = 1 - 0.08 * Math.exp(-((day - 15) ** 2) / 60); // cheapest ~mid month
-          const monthAdj = month.endsWith("-03") ? 1.04 : 1.0; // March a touch pricier
-          const noise = 0.9 + rand() * 0.25;
-          const price = base * market * midDip * monthAdj * noise;
-          calendar[`${month}-${dd}`] = Math.round(price / 5) * 5;
-        }
-        let cheapestDate = null;
-        let cheapest = Infinity;
-        for (const [k, v] of Object.entries(calendar)) {
-          if (v < cheapest) {
-            cheapest = v;
-            cheapestDate = k;
+      for (const destination of destinations) {
+        const destAdj = DEST_ADJ[destination] ?? DEST_ADJ.default;
+        for (const month of config.months) {
+          const dim = daysInMonth(month);
+          const calendar = {};
+          // per-day fares across the month with a mid-month dip
+          for (let day = 1; day <= dim; day++) {
+            const dd = String(day).padStart(2, "0");
+            const midDip = 1 - 0.08 * Math.exp(-((day - 15) ** 2) / 60); // cheapest ~mid month
+            const monthAdj = month.endsWith("-03") ? 1.04 : 1.0; // March a touch pricier
+            const noise = 0.9 + rand() * 0.25;
+            const price = base * market * midDip * monthAdj * destAdj * noise;
+            calendar[`${month}-${dd}`] = Math.round(price / 5) * 5;
           }
+          let cheapestDate = null;
+          let cheapest = Infinity;
+          for (const [k, v] of Object.entries(calendar)) {
+            if (v < cheapest) {
+              cheapest = v;
+              cheapestDate = k;
+            }
+          }
+          prices.push({ origin, destination, month, cheapestDate, cheapest, calendar });
         }
-        prices.push({ origin, destination: config.destination, month, cheapestDate, cheapest, calendar });
       }
     }
     snapshots.push({ date: iso, ts: date.toISOString(), ok: true, prices });
@@ -102,11 +110,14 @@ async function main() {
     },
     config: {
       origins: config.origins,
-      destination: config.destination,
+      destination: destinations[0] || config.destination,
+      destinations,
       months: config.months,
       tripType: config.tripType,
       daysAtDestination: config.daysAtDestination,
       travellers: config.travellers,
+      marker: config.marker || "",
+      email: (config.alerts && config.alerts.email) || { enabled: false, to: [] },
     },
     snapshots,
   };

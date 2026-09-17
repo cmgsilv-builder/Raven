@@ -1,0 +1,18 @@
+{
+  "name": "raven",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "CI-only dependencies for Raven's daily watcher/notifier. The PWA itself is dependency-free static HTML/CSS/JS and does NOT use these.",
+  "scripts": {
+    "fetch": "node scripts/fetch-prices.mjs",
+    "notify": "node scripts/notify.mjs",
+    "seed": "node scripts/gen-seed.mjs",
+    "vapid": "node scripts/gen-vapid.mjs",
+    "test": "node scripts/selfcheck.mjs"
+  },
+  "dependencies": {
+    "web-push": "^3.6.7",
+    "nodemailer": "^6.9.14"
+  }
+}

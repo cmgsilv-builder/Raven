@@ -1,6 +1,7 @@
 name: Daily price watch
 
-# Fetches cheapest fares once a day and commits them to data/history.json.
+# Fetches cheapest fares once a day, commits them to data/history.json, and
+# sends push/email alerts if the target price is hit.
 # Free: GitHub Actions minutes are unlimited for public repos.
 
 on:
@@ -27,19 +28,37 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install notifier dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Self-check (cheapest-day regression)
+        run: node scripts/selfcheck.mjs
+
       - name: Fetch prices
         env:
           TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
         run: node scripts/fetch-prices.mjs
 
-      - name: Commit updated history
+      - name: Send alerts (push + email)
+        env:
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          PUSH_SUBSCRIPTIONS: ${{ secrets.PUSH_SUBSCRIPTIONS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+        run: node scripts/notify.mjs
+
+      - name: Commit updated data
         run: |
           git config user.name "raven-bot"
           git config user.email "raven-bot@users.noreply.github.com"
-          if git diff --quiet -- data/history.json; then
-            echo "No price changes today."
+          git add data/history.json data/alert-state.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No data changes today."
           else
-            git add data/history.json
             git commit -m "chore(data): daily price snapshot $(date -u +%Y-%m-%d)"
             git push
           fi

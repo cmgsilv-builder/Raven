@@ -3,7 +3,7 @@
  * Price data: network-first with cache fallback (fresh when online, still
  * shows the last snapshot offline).
  */
-const CACHE = "raven-v1.0.0";
+const CACHE = "raven-v2.0.0";
 const SHELL = [
   "./",
   "./index.html",
@@ -28,6 +28,35 @@ self.addEventListener("activate", (event) => {
     caches.keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
+  );
+});
+
+// ---- Web Push -------------------------------------------------------------
+// The daily GitHub Actions workflow sends a push when the target price is hit.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data && event.data.text() }; }
+  const title = data.title || "Raven — price alert";
+  const options = {
+    body: data.body || "A watched fare hit your target.",
+    icon: "./icons/icon-192.png",
+    badge: "./icons/icon-192.png",
+    tag: data.tag || "raven-price-alert",
+    data: { url: data.url || "./index.html" },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || "./index.html";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const c of clients) {
+        if ("focus" in c) return c.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(target);
+    })
   );
 });
 

@@ -20,6 +20,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { filterCalendarToMonth, cheapestOf } from "./lib/prices.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CONFIG_PATH = join(ROOT, "data", "watch-config.json");
@@ -64,18 +65,6 @@ async function fetchCalendar({ origin, destination, month, currency, token }) {
   return out;
 }
 
-function cheapestOf(calendar) {
-  let bestDate = null;
-  let best = Infinity;
-  for (const [date, price] of Object.entries(calendar)) {
-    if (price < best) {
-      best = price;
-      bestDate = date;
-    }
-  }
-  return bestDate ? { cheapestDate: bestDate, cheapest: best } : { cheapestDate: null, cheapest: null };
-}
-
 async function loadJson(path, fallback) {
   try {
     return JSON.parse(await readFile(path, "utf8"));
@@ -100,28 +89,31 @@ async function main() {
     process.exit(1);
   }
   const currency = config.currency || "EUR";
+  // Support multiple destinations; fall back to the single legacy `destination`.
+  const destinations = (config.destinations && config.destinations.length)
+    ? config.destinations
+    : [config.destination].filter(Boolean);
 
   const prices = [];
   let anySuccess = false;
   for (const origin of config.origins) {
-    for (const month of config.months) {
-      try {
-        const calendar = await fetchCalendar({
-          origin,
-          destination: config.destination,
-          month,
-          currency,
-          token,
-        });
-        const { cheapestDate, cheapest } = cheapestOf(calendar);
-        if (cheapest != null) anySuccess = true;
-        prices.push({ origin, destination: config.destination, month, cheapestDate, cheapest, calendar });
-        console.log(`${origin}->${config.destination} ${month}: cheapest ${cheapest ?? "n/a"} ${currency} on ${cheapestDate ?? "n/a"} (${Object.keys(calendar).length} days)`);
-      } catch (err) {
-        console.error(`  ! ${err.message}`);
-        prices.push({ origin, destination: config.destination, month, cheapestDate: null, cheapest: null, calendar: {} });
+    for (const destination of destinations) {
+      for (const month of config.months) {
+        try {
+          const raw = await fetchCalendar({ origin, destination, month, currency, token });
+          // The API returns cheap fares for dates beyond the requested month;
+          // keep ONLY in-month dates so the cheapest day can't fall outside it.
+          const calendar = filterCalendarToMonth(raw, month);
+          const { cheapestDate, cheapest } = cheapestOf(calendar);
+          if (cheapest != null) anySuccess = true;
+          prices.push({ origin, destination, month, cheapestDate, cheapest, calendar });
+          console.log(`${origin}->${destination} ${month}: cheapest ${cheapest ?? "n/a"} ${currency} on ${cheapestDate ?? "n/a"} (${Object.keys(calendar).length}/${Object.keys(raw).length} in-month days)`);
+        } catch (err) {
+          console.error(`  ! ${err.message}`);
+          prices.push({ origin, destination, month, cheapestDate: null, cheapest: null, calendar: {} });
+        }
+        await sleep(REQUEST_GAP_MS);
       }
-      await sleep(REQUEST_GAP_MS);
     }
   }
 
@@ -148,11 +140,15 @@ async function main() {
   history.meta.sample = false;
   history.config = {
     origins: config.origins,
-    destination: config.destination,
+    destination: destinations[0] || config.destination,
+    destinations,
     months: config.months,
     tripType: config.tripType,
     daysAtDestination: config.daysAtDestination,
     travellers: config.travellers,
+    marker: config.marker || "", // Travelpayouts affiliate marker (optional)
+    // Non-secret alert status the app shows (no credentials — those are secrets).
+    email: (config.alerts && config.alerts.email) || { enabled: false, to: [] },
   };
 
   const today = new Date().toISOString().slice(0, 10); // UTC date
