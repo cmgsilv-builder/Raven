@@ -8976,6 +8976,209 @@
           "destination": "GRU",
           "month": "2027-02",
           "cheapestDate": "2027-02-07",
+          "cheapest": 860
+        },
+        {
+          "origin": "AMS",
+          "destination": "GRU",
+          "month": "2027-03",
+          "cheapestDate": "2027-03-05",
+          "cheapest": 812
+        },
+        {
+          "origin": "AMS",
+          "destination": "GIG",
+          "month": "2027-02",
+          "cheapestDate": "2027-02-15",
+          "cheapest": 912
+        },
+        {
+          "origin": "AMS",
+          "destination": "GIG",
+          "month": "2027-03",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "BRU",
+          "destination": "GRU",
+          "month": "2027-02",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "BRU",
+          "destination": "GRU",
+          "month": "2027-03",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "BRU",
+          "destination": "GIG",
+          "month": "2027-02",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "BRU",
+          "destination": "GIG",
+          "month": "2027-03",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "DUS",
+          "destination": "GRU",
+          "month": "2027-02",
+          "cheapestDate": "2027-02-08",
+          "cheapest": 864
+        },
+        {
+          "origin": "DUS",
+          "destination": "GRU",
+          "month": "2027-03",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "DUS",
+          "destination": "GIG",
+          "month": "2027-02",
+          "cheapestDate": "2027-02-08",
+          "cheapest": 987
+        },
+        {
+          "origin": "DUS",
+          "destination": "GIG",
+          "month": "2027-03",
+          "cheapestDate": "2027-03-01",
+          "cheapest": 976
+        },
+        {
+          "origin": "EIN",
+          "destination": "GRU",
+          "month": "2027-02",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "EIN",
+          "destination": "GRU",
+          "month": "2027-03",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "EIN",
+          "destination": "GIG",
+          "month": "2027-02",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "EIN",
+          "destination": "GIG",
+          "month": "2027-03",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "AMS",
+          "destination": "NAT",
+          "month": "2027-02",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "AMS",
+          "destination": "NAT",
+          "month": "2027-03",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "BRU",
+          "destination": "NAT",
+          "month": "2027-02",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "BRU",
+          "destination": "NAT",
+          "month": "2027-03",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "DUS",
+          "destination": "NAT",
+          "month": "2027-02",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "DUS",
+          "destination": "NAT",
+          "month": "2027-03",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "EIN",
+          "destination": "NAT",
+          "month": "2027-02",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "EIN",
+          "destination": "NAT",
+          "month": "2027-03",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "LIS",
+          "destination": "NAT",
+          "month": "2027-02",
+          "cheapestDate": null,
+          "cheapest": null
+        },
+        {
+          "origin": "LIS",
+          "destination": "NAT",
+          "month": "2027-03",
+          "cheapestDate": "2027-03-14",
+          "cheapest": 979
+        },
+        {
+          "origin": "LIS",
+          "destination": "NAT",
+          "month": "2027-01",
+          "cheapestDate": "2027-01-19",
+          "cheapest": 896
+        },
+        {
+          "origin": "AMS",
+          "destination": "NAT",
+          "month": "2027-01",
+          "cheapestDate": null,
+          "cheapest": null
+        }
+      ]
+    },
+    {
+      "date": "2026-11-01",
+      "ts": "2026-11-01T13:34:01.128Z",
+      "ok": true,
+      "prices": [
+        {
+          "origin": "AMS",
+          "destination": "GRU",
+          "month": "2027-02",
+          "cheapestDate": "2027-02-07",
           "cheapest": 860,
           "calendar": {
             "2027-02-07": 860
@@ -8995,14 +9198,15 @@
           "origin": "AMS",
           "destination": "GIG",
           "month": "2027-02",
-          "cheapestDate": "2027-02-15",
-          "cheapest": 912,
+          "cheapestDate": "2027-02-22",
+          "cheapest": 828,
           "calendar": {
             "2027-02-05": 1083,
             "2027-02-07": 931,
             "2027-02-08": 1000,
             "2027-02-15": 912,
-            "2027-02-17": 922
+            "2027-02-17": 922,
+            "2027-02-22": 828
           }
         },
         {
@@ -9033,9 +9237,11 @@
           "origin": "BRU",
           "destination": "GIG",
           "month": "2027-02",
-          "cheapestDate": null,
-          "cheapest": null,
-          "calendar": {}
+          "cheapestDate": "2027-02-02",
+          "cheapest": 937,
+          "calendar": {
+            "2027-02-02": 937
+          }
         },
         {
           "origin": "BRU",
@@ -9049,11 +9255,9 @@
           "origin": "DUS",
           "destination": "GRU",
           "month": "2027-02",
-          "cheapestDate": "2027-02-08",
-          "cheapest": 864,
-          "calendar": {
-            "2027-02-08": 864
-          }
+          "cheapestDate": null,
+          "cheapest": null,
+          "calendar": {}
         },
         {
           "origin": "DUS",
@@ -9067,20 +9271,18 @@
           "origin": "DUS",
           "destination": "GIG",
           "month": "2027-02",
-          "cheapestDate": "2027-02-08",
-          "cheapest": 987,
-          "calendar": {
-            "2027-02-08": 987
-          }
+          "cheapestDate": null,
+          "cheapest": null,
+          "calendar": {}
         },
         {
           "origin": "DUS",
           "destination": "GIG",
           "month": "2027-03",
           "cheapestDate": "2027-03-01",
-          "cheapest": 976,
+          "cheapest": 931,
           "calendar": {
-            "2027-03-01": 976
+            "2027-03-01": 931
           }
         },
         {
